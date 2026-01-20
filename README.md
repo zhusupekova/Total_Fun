@@ -24,6 +24,14 @@ python3 -m http.server 8000
 
 Цель: рабочий MVP на 4 игроков в real-time, статичная 3D-локация (ринг), персонажи без вращения, мяч с плоской кастомной физикой, стабильный FPS в Telegram WebView.
 
+### Референсы (images/)
+- `ref_arena_mockup.jpeg` — макет арены/ринг.
+- `ref_character_pigeon.jpeg`, `ref_character_duck.jpeg`, `ref_character_cat.jpeg` — базовые персонажи.
+- `ref_ui_slot_day.jpeg`, `ref_ui_slot_night.jpeg`, `ref_ui_slot_winter.jpeg`, `ref_ui_slot_vertical.jpeg` — UI экраны слота (варианты дня/ночи/зима/вертикаль).
+- `ref_ui_character_panel.jpeg` — карточка персонажа.
+- `ref_map_world_buildings.jpeg`, `ref_map_world_ruins.jpeg` — карта/мир (постройки и руины).
+- `пример из другой игры.jpeg`, `03.png` — дополнительные референсы.
+
 ### Этап 1 — Сцена и физика (текущий, закрывается максимально)
 - Зафиксировать размеры ринга, зоны игроков (4 стороны), габариты ворот/целей, правила удара/потери очков.
 - Подготовить черновые ассеты (low-poly ринг, борта, простой мяч) в Blender → glTF/GLB.
