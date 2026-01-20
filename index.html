@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Ring MVP - Stage 1</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #0c0f1a;
+      font-family: sans-serif;
+    }
+    #app {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      touch-action: none;
+    }
+    #hud {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      color: #e6f2ff;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 13px;
+      line-height: 1.4;
+      backdrop-filter: blur(4px);
+    }
+    #hud b { color: #9ae8ff; }
+    #hud code { color: #ffd66b; }
+    #hud .row { margin-bottom: 4px; }
+    #hud .row:last-child { margin-bottom: 0; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="hud">
+    <div class="row"><b>Controls:</b> Player 1 — <code>W/S</code> (forward/back), <code>A/D</code> (strafe)</div>
+    <div class="row">Toggle pause — <code>Space</code>, Reset ball — <code>R</code></div>
+    <div class="row">Bots: three AI paddles move and reflect the ball</div>
+    <div class="row">Stage 1: arena + custom light physics (no networking yet)</div>
+  </div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
