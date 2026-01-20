@@ -1,4 +1,6 @@
 import * as THREE from 'https://unpkg.com/three@0.161.0/build/three.module.js';
+import { GLTFLoader } from 'https://unpkg.com/three@0.161.0/examples/jsm/loaders/GLTFLoader.js';
+import { clone as cloneSkinned } from 'https://unpkg.com/three@0.161.0/examples/jsm/utils/SkeletonUtils.js';
 
 const app = document.getElementById('app');
 const scene = new THREE.Scene();
@@ -29,6 +31,30 @@ dir.shadow.mapSize.set(1024, 1024);
 scene.add(dir);
 
 const ARENA = { width: 16, height: 10, wallHeight: 1.2, playerDepth: 0.7 };
+const ASSETS = {
+  arena: 'assets/arena.glb',
+  player: 'assets/player.glb',
+  ball: 'assets/ball.glb',
+};
+const gltfLoader = new GLTFLoader();
+
+function enableShadows(object) {
+  object.traverse((child) => {
+    if (child.isMesh) {
+      child.castShadow = true;
+      child.receiveShadow = true;
+    }
+  });
+}
+
+async function loadOptionalGltf(url) {
+  try {
+    return await gltfLoader.loadAsync(url);
+  } catch (err) {
+    console.warn('Optional GLTF not found/failed:', url);
+    return null;
+  }
+}
 
 function createArena() {
   const group = new THREE.Group();
@@ -68,11 +94,18 @@ function createArena() {
   });
 
   scene.add(group);
+  return group;
 }
 
-createArena();
+let arenaGroup = createArena();
 
 const playerMatColors = [0xff6b6b, 0xffc952, 0x6be0ff, 0xa17dff];
+const sideYaw = {
+  top: 0,
+  right: Math.PI / 2,
+  bottom: Math.PI,
+  left: -Math.PI / 2,
+};
 
 function createPlayer(colorIndex, side) {
   const bodyGeom = new THREE.BoxGeometry(2.2, 0.8, ARENA.playerDepth);
@@ -120,7 +153,7 @@ function playerDefaultPosition(side) {
 
 const ballGeom = new THREE.SphereGeometry(0.45, 24, 18);
 const ballMat = new THREE.MeshStandardMaterial({ color: 0x9ad1ff, roughness: 0.2, metalness: 0.3 });
-const ballMesh = new THREE.Mesh(ballGeom, ballMat);
+let ballMesh = new THREE.Mesh(ballGeom, ballMat);
 ballMesh.castShadow = true;
 ballMesh.position.y = 0.45;
 scene.add(ballMesh);
@@ -131,6 +164,16 @@ const shadowMesh = new THREE.Mesh(shadowGeom, shadowMat);
 shadowMesh.rotation.x = -Math.PI / 2;
 shadowMesh.position.y = 0.001;
 scene.add(shadowMesh);
+
+function setBallRadiusFromObject(object) {
+  const box = new THREE.Box3().setFromObject(object);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const radius = Math.max(size.x, size.z) / 2;
+  if (radius > 0.05) {
+    ballState.radius = radius;
+  }
+}
 
 const ballState = {
   velocity: new THREE.Vector2(4, 2.8),
@@ -164,6 +207,43 @@ function resetBall() {
 }
 
 resetBall();
+
+async function hydrateWithGltf() {
+  const arenaGltf = await loadOptionalGltf(ASSETS.arena);
+  if (arenaGltf) {
+    scene.remove(arenaGroup);
+    arenaGroup = arenaGltf.scene;
+    enableShadows(arenaGroup);
+    scene.add(arenaGroup);
+  }
+
+  const playerGltf = await loadOptionalGltf(ASSETS.player);
+  if (playerGltf) {
+    players.forEach((p) => {
+      const model = cloneSkinned(playerGltf.scene);
+      enableShadows(model);
+      model.position.copy(p.mesh.position);
+      model.rotation.y = sideYaw[p.side] ?? 0;
+      model.userData.side = p.side;
+      scene.remove(p.mesh);
+      p.mesh = model;
+      scene.add(model);
+    });
+  }
+
+  const ballGltf = await loadOptionalGltf(ASSETS.ball);
+  if (ballGltf) {
+    const model = ballGltf.scene;
+    enableShadows(model);
+    model.position.copy(ballMesh.position);
+    scene.remove(ballMesh);
+    ballMesh = model;
+    scene.add(ballMesh);
+    setBallRadiusFromObject(model);
+  }
+}
+
+hydrateWithGltf();
 
 function clampPlayer(pos, side) {
   const margin = 0.4;
