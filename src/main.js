@@ -36,6 +36,7 @@ const ASSETS = {
   player: 'assets/player.glb',
   ball: 'assets/ball.glb',
 };
+let playerPrefab = null;
 const params = new URLSearchParams(window.location.search);
 const wsUrl = params.get('ws');
 const net = {
@@ -120,6 +121,13 @@ const sideYaw = {
 };
 
 function createPlayer(colorIndex, side) {
+  if (playerPrefab) {
+    const cloned = cloneSkinned(playerPrefab);
+    enableShadows(cloned);
+    cloned.rotation.y = sideYaw[side] ?? 0;
+    cloned.userData.side = side;
+    return cloned;
+  }
   const bodyGeom = new THREE.BoxGeometry(2.2, 0.8, ARENA.playerDepth);
   const mat = new THREE.MeshStandardMaterial({ color: playerMatColors[colorIndex], metalness: 0.1, roughness: 0.5 });
   const mesh = new THREE.Mesh(bodyGeom, mat);
@@ -325,8 +333,10 @@ async function hydrateWithGltf() {
 
   const playerGltf = await loadOptionalGltf(ASSETS.player);
   if (playerGltf) {
+    playerPrefab = playerGltf.scene;
+    enableShadows(playerPrefab);
     players.forEach((p) => {
-      const model = cloneSkinned(playerGltf.scene);
+      const model = cloneSkinned(playerPrefab);
       enableShadows(model);
       model.position.copy(p.mesh.position);
       model.rotation.y = sideYaw[p.side] ?? 0;
