@@ -31,7 +31,7 @@ python3 -m http.server 8000
 - `ref_ui_slot_day.jpeg`, `ref_ui_slot_night.jpeg`, `ref_ui_slot_winter.jpeg`, `ref_ui_slot_vertical.jpeg` — UI экраны слота (варианты дня/ночи/зима/вертикаль).
 - `ref_ui_character_panel.jpeg` — карточка персонажа.
 - `ref_map_world_buildings.jpeg`, `ref_map_world_ruins.jpeg` — карта/мир (постройки и руины).
-- `пример из другой игры.jpeg`, `03.png` — дополнительные референсы.
+- `пример из другой игры.jpeg` — дополнительный референс.
 
 ### Документация по персонажам
 - Смотри `docs/characters.md` для списка рефов и требований к GLB-экспорту (pivot, масштаб, ориентация).
@@ -99,4 +99,4 @@ python3 -m http.server 8000
 - Директория `server/`: Node + `ws`, 60 FPS тик, зеркальная физика мяча/игроков как на Stage 1.
 - Протокол (см. `server/README.md`): `welcome`, `state` (каждый тик), `player_join/leave`, входной `input`, debug `reset_ball`.
 - Запуск: `cd server && npm install && npm start` (порт 7071 по умолчанию, задаётся `PORT`).
-- Клиентская сцена пока не подключена к сети — нужно будет добавить WebSocket-клиент и интерполяцию позже.
+- Клиент (экран Stage 1) может подключиться к серверу через query `?ws=ws://localhost:7071` — в сетевом режиме физика и движения читаются из сервера, ввод отправляется в WS; без параметра остаётся офлайн-демо.

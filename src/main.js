@@ -36,6 +36,18 @@ const ASSETS = {
   player: 'assets/player.glb',
   ball: 'assets/ball.glb',
 };
+const params = new URLSearchParams(window.location.search);
+const wsUrl = params.get('ws');
+const net = {
+  enabled: !!wsUrl,
+  wsUrl,
+  ws: null,
+  connected: false,
+  id: null,
+  side: null,
+  snapshot: null,
+  lastInput: null,
+};
 const gltfLoader = new GLTFLoader();
 
 function enableShadows(object) {
@@ -133,13 +145,15 @@ function createPlayer(colorIndex, side) {
 const players = [];
 const sides = ['top', 'right', 'bottom', 'left'];
 
-sides.forEach((side, idx) => {
-  const mesh = createPlayer(idx, side);
-  const pos = playerDefaultPosition(side);
-  mesh.position.set(pos.x, 0.5, pos.z);
-  scene.add(mesh);
-  players.push({ mesh, side, isLocal: idx === 0 });
-});
+if (!net.enabled) {
+  sides.forEach((side, idx) => {
+    const mesh = createPlayer(idx, side);
+    const pos = playerDefaultPosition(side);
+    mesh.position.set(pos.x, 0.5, pos.z);
+    scene.add(mesh);
+    players.push({ mesh, side, isLocal: idx === 0 });
+  });
+}
 
 function playerDefaultPosition(side) {
   switch (side) {
@@ -245,6 +259,10 @@ function bindTouchControls() {
 }
 
 function resetBall() {
+  if (net.enabled && net.connected && net.ws && net.ws.readyState === WebSocket.OPEN) {
+    net.ws.send(JSON.stringify({ type: 'reset_ball' }));
+    return;
+  }
   ballMesh.position.set(0, ballState.radius, 0);
   shadowMesh.position.x = ballMesh.position.x;
   shadowMesh.position.z = ballMesh.position.z;
@@ -254,6 +272,47 @@ function resetBall() {
 }
 
 resetBall();
+
+function connectWebSocket(url) {
+  if (!url) return;
+  net.ws = new WebSocket(url);
+  net.ws.addEventListener('open', () => {
+    net.connected = true;
+    console.log('[net] connected');
+  });
+  net.ws.addEventListener('message', (evt) => {
+    try {
+      const msg = JSON.parse(evt.data);
+      if (msg.type === 'welcome') {
+        net.id = msg.id;
+        net.side = msg.side;
+        if (msg.arena) {
+          ARENA.width = msg.arena.width ?? ARENA.width;
+          ARENA.height = msg.arena.height ?? ARENA.height;
+          ARENA.playerDepth = msg.arena.playerDepth ?? ARENA.playerDepth;
+        }
+      }
+      if (msg.type === 'state') {
+        net.snapshot = msg;
+      }
+    } catch (err) {
+      console.warn('Bad net message', err);
+    }
+  });
+  net.ws.addEventListener('close', () => {
+    net.connected = false;
+    console.warn('[net] disconnected');
+  });
+  net.ws.addEventListener('error', (e) => {
+    console.warn('[net] error', e);
+  });
+}
+
+if (net.enabled) {
+  players.forEach((p) => scene.remove(p.mesh));
+  players.length = 0;
+  connectWebSocket(net.wsUrl);
+}
 
 async function hydrateWithGltf() {
   const arenaGltf = await loadOptionalGltf(ASSETS.arena);
@@ -291,6 +350,11 @@ async function hydrateWithGltf() {
 }
 
 hydrateWithGltf();
+
+function colorIndexBySide(side) {
+  const idx = sides.indexOf(side);
+  return idx >= 0 ? idx : 0;
+}
 
 function clampPlayer(pos, side) {
   const margin = 0.4;
@@ -340,6 +404,54 @@ function moveBots(dt) {
     }
     clampPlayer(p.mesh.position, p.side);
   });
+}
+
+function syncNetPlayers(snapshotPlayers) {
+  const alive = new Set();
+  snapshotPlayers.forEach((sp) => {
+    let player = players.find((p) => p.id === sp.id);
+    if (!player) {
+      const mesh = createPlayer(colorIndexBySide(sp.side), sp.side);
+      mesh.position.set(sp.x, 0.5, sp.z);
+      scene.add(mesh);
+      player = { mesh, side: sp.side, id: sp.id, isLocal: false };
+      players.push(player);
+    }
+    player.isLocal = sp.id === net.id;
+    player.side = sp.side;
+    player.mesh.rotation.y = sideYaw[player.side] ?? 0;
+    player.mesh.position.lerp(new THREE.Vector3(sp.x, 0.5, sp.z), 0.35);
+    alive.add(sp.id);
+  });
+  const toRemove = players.filter((p) => p.id && !alive.has(p.id));
+  toRemove.forEach((p) => scene.remove(p.mesh));
+  for (const dead of toRemove) {
+    const idx = players.indexOf(dead);
+    if (idx >= 0) players.splice(idx, 1);
+  }
+}
+
+function applyNetState(dt) {
+  if (!net.snapshot) return;
+  const { ball, players: plist } = net.snapshot;
+  syncNetPlayers(plist || []);
+  if (ball) {
+    ballMesh.position.x = THREE.MathUtils.lerp(ballMesh.position.x, ball.x, 0.4);
+    ballMesh.position.z = THREE.MathUtils.lerp(ballMesh.position.z, ball.z, 0.4);
+    ballMesh.position.y = ballState.radius;
+    shadowMesh.position.x = ballMesh.position.x;
+    shadowMesh.position.z = ballMesh.position.z;
+  }
+}
+
+function sendNetInput() {
+  if (!net.enabled || !net.connected || !net.ws || net.ws.readyState !== WebSocket.OPEN) return;
+  const payload = { type: 'input', input: { forward: input.forward, back: input.back, left: input.left, right: input.right } };
+  const serialized = JSON.stringify(payload);
+  if (serialized !== net.lastInput) {
+    net.ws.send(serialized);
+    net.lastInput = serialized;
+  }
 }
 
 function collideBallWithWalls() {
@@ -421,9 +533,14 @@ function animate() {
   lastTime = now;
 
   if (!input.paused) {
-    moveLocalPlayer(dt);
-    moveBots(dt);
-    updateBall(dt);
+    if (net.enabled && net.connected) {
+      sendNetInput();
+      applyNetState(dt);
+    } else {
+      moveLocalPlayer(dt);
+      moveBots(dt);
+      updateBall(dt);
+    }
   }
 
   renderer.render(scene, camera);
