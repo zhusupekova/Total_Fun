@@ -27,6 +27,7 @@ python3 -m http.server 8000
 ### Референсы (images/)
 - `ref_arena_mockup.jpeg` — макет арены/ринг.
 - `ref_character_pigeon.jpeg`, `ref_character_duck.jpeg`, `ref_character_cat.jpeg`, `ref_character_dog.png` — базовые персонажи.
+- `Screenshot 2026-01-20 at 11.58.13 PM.png` — дубль рефа собаки на прозрачном фоне.
 - `ref_ui_slot_day.jpeg`, `ref_ui_slot_night.jpeg`, `ref_ui_slot_winter.jpeg`, `ref_ui_slot_vertical.jpeg` — UI экраны слота (варианты дня/ночи/зима/вертикаль).
 - `ref_ui_character_panel.jpeg` — карточка персонажа.
 - `ref_map_world_buildings.jpeg`, `ref_map_world_ruins.jpeg` — карта/мир (постройки и руины).
