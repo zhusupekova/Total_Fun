@@ -197,6 +197,53 @@ window.addEventListener('keyup', (e) => {
   if (e.code === 'KeyD') input.right = false;
 });
 
+function bindTouchControls() {
+  const root = document.getElementById('touch-controls');
+  if (!root) return;
+  const active = new Set();
+  const setDir = (dir, down) => {
+    if (dir === 'up') input.forward = down;
+    if (dir === 'down') input.back = down;
+    if (dir === 'left') input.left = down;
+    if (dir === 'right') input.right = down;
+  };
+  const handleDown = (dir, id) => {
+    active.add(id);
+    setDir(dir, true);
+  };
+  const handleUp = (id) => {
+    active.delete(id);
+    // recompute all directions from active pointers
+    input.forward = false;
+    input.back = false;
+    input.left = false;
+    input.right = false;
+    active.forEach((stored) => {
+      const btn = root.querySelector(`[data-id="${stored}"]`);
+      if (!btn) return;
+      const dir = btn.dataset.dir;
+      setDir(dir, true);
+    });
+  };
+  const buttons = root.querySelectorAll('.tc-btn');
+  buttons.forEach((btn, idx) => {
+    btn.dataset.id = `touch-${idx}`;
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      btn.setPointerCapture(e.pointerId);
+      handleDown(btn.dataset.dir, e.pointerId.toString());
+    });
+    btn.addEventListener('pointerup', (e) => {
+      e.preventDefault();
+      handleUp(e.pointerId.toString());
+      btn.releasePointerCapture(e.pointerId);
+    });
+    btn.addEventListener('pointercancel', (e) => {
+      handleUp(e.pointerId.toString());
+    });
+  });
+}
+
 function resetBall() {
   ballMesh.position.set(0, ballState.radius, 0);
   shadowMesh.position.x = ballMesh.position.x;
@@ -384,6 +431,7 @@ function animate() {
 }
 
 animate();
+bindTouchControls();
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;

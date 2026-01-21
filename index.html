@@ -37,6 +37,34 @@
     #hud code { color: #ffd66b; }
     #hud .row { margin-bottom: 4px; }
     #hud .row:last-child { margin-bottom: 0; }
+    #touch-controls {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      display: grid;
+      grid-template-columns: 60px 60px 60px;
+      grid-template-rows: 60px 60px 60px;
+      gap: 6px;
+      opacity: 0.85;
+      user-select: none;
+      touch-action: none;
+    }
+    .tc-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 14px;
+      color: #e6f2ff;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+    }
+    .tc-btn:active {
+      background: rgba(154, 232, 255, 0.25);
+      border-color: rgba(154, 232, 255, 0.5);
+    }
+    .tc-empty { opacity: 0; }
   </style>
 </head>
 <body>
@@ -46,6 +74,15 @@
     <div class="row">Toggle pause — <code>Space</code>, Reset ball — <code>R</code></div>
     <div class="row">Bots: three AI paddles move and reflect the ball</div>
     <div class="row">Stage 1: arena + custom light physics (no networking yet)</div>
+  </div>
+  <div id="touch-controls">
+    <div class="tc-empty"></div>
+    <div class="tc-btn" data-dir="up">▲</div>
+    <div class="tc-empty"></div>
+    <div class="tc-btn" data-dir="left">◀</div>
+    <div class="tc-btn" data-dir="down">▼</div>
+    <div class="tc-btn" data-dir="right">▶</div>
+    <div class="tc-empty"></div>
   </div>
   <script type="module" src="./src/main.js"></script>
 </body>
