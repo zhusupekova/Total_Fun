@@ -454,6 +454,18 @@ function sendNetInput() {
   }
 }
 
+function updateHud() {
+  const netEl = document.getElementById('net-status');
+  if (!netEl) return;
+  if (!net.enabled) {
+    netEl.textContent = 'Mode: offline demo (local physics + bots)';
+  } else if (net.connected) {
+    netEl.textContent = `Mode: online WS (${net.wsUrl}) — player ${net.id ?? '?'} side ${net.side ?? '?'}`;
+  } else {
+    netEl.textContent = `Mode: online WS connecting to ${net.wsUrl || ''}`;
+  }
+}
+
 function collideBallWithWalls() {
   const halfW = ARENA.width / 2;
   const halfH = ARENA.height / 2;
@@ -543,6 +555,7 @@ function animate() {
     }
   }
 
+  updateHud();
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
 }
