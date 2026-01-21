@@ -48,6 +48,8 @@ const net = {
   side: null,
   snapshot: null,
   lastInput: null,
+  reconnectDelay: 1000,
+  reconnectTimer: null,
 };
 const gltfLoader = new GLTFLoader();
 
@@ -283,9 +285,18 @@ resetBall();
 
 function connectWebSocket(url) {
   if (!url) return;
+  if (net.ws) {
+    net.ws.close();
+    net.ws = null;
+  }
+  if (net.reconnectTimer) {
+    clearTimeout(net.reconnectTimer);
+    net.reconnectTimer = null;
+  }
   net.ws = new WebSocket(url);
   net.ws.addEventListener('open', () => {
     net.connected = true;
+    net.reconnectDelay = 1000;
     console.log('[net] connected');
   });
   net.ws.addEventListener('message', (evt) => {
@@ -310,6 +321,10 @@ function connectWebSocket(url) {
   net.ws.addEventListener('close', () => {
     net.connected = false;
     console.warn('[net] disconnected');
+    net.reconnectTimer = setTimeout(() => {
+      net.reconnectDelay = Math.min(net.reconnectDelay * 1.6, 8000);
+      connectWebSocket(net.wsUrl);
+    }, net.reconnectDelay);
   });
   net.ws.addEventListener('error', (e) => {
     console.warn('[net] error', e);
@@ -446,6 +461,9 @@ function applyNetState(dt) {
   const { ball, players: plist } = net.snapshot;
   syncNetPlayers(plist || []);
   if (ball) {
+    if (typeof ball.r === 'number' && ball.r > 0.01) {
+      ballState.radius = ball.r;
+    }
     ballMesh.position.x = THREE.MathUtils.lerp(ballMesh.position.x, ball.x, 0.4);
     ballMesh.position.z = THREE.MathUtils.lerp(ballMesh.position.z, ball.z, 0.4);
     ballMesh.position.y = ballState.radius;
