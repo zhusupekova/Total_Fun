@@ -218,6 +218,12 @@ const playerPortraits = {
   bottom: 'ref_character_duck.jpeg',
   left: 'ref_character_pigeon.jpeg',
 };
+const playerColorBySide = {
+  top: 0xff8a3d, // cat orange
+  right: 0xf5f5f5, // dog white
+  bottom: 0xffd74a, // duck yellow
+  left: 0x6d87b3, // pigeon blue
+};
 
 function createPlayer(colorIndex, side) {
   if (playerPrefab) {
@@ -228,7 +234,8 @@ function createPlayer(colorIndex, side) {
     return cloned;
   }
   const bodyGeom = new THREE.BoxGeometry(2.2, 0.8, ARENA.playerDepth);
-  const mat = new THREE.MeshStandardMaterial({ color: playerMatColors[colorIndex], metalness: 0.1, roughness: 0.5 });
+  const color = playerColorBySide[side] ?? playerMatColors[colorIndex];
+  const mat = new THREE.MeshStandardMaterial({ color, metalness: 0.1, roughness: 0.5 });
   const mesh = new THREE.Mesh(bodyGeom, mat);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -298,11 +305,38 @@ function attachPortrait(player, texture) {
   const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
   const sprite = new THREE.Sprite(spriteMat);
   const aspect = texture.image ? texture.image.width / texture.image.height : 1;
-  const baseH = 1.4;
+  const baseH = 1.6;
   sprite.scale.set(baseH * aspect, baseH, 1);
-  sprite.position.set(0, 2.6, 0);
+  sprite.position.set(0, 2.8, 0);
   player.mesh.add(sprite);
   player.portrait = sprite;
+}
+
+const portraitCache = new Map();
+function loadPortraitTexture(path) {
+  if (portraitCache.has(path)) return portraitCache.get(path);
+  const tex = texLoader.load(path, (texture) => {
+    if (!texture.image) return;
+    const c = document.createElement('canvas');
+    c.width = texture.image.width;
+    c.height = texture.image.height;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(texture.image, 0, 0);
+    const imgData = ctx.getImageData(0, 0, c.width, c.height);
+    const data = imgData.data;
+    // simple chroma key: remove near-white/near-black background
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      if ((r > 245 && g > 245 && b > 245) || (r < 10 && g < 10 && b < 10)) {
+        data[i + 3] = 0;
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+    texture.image = c;
+    texture.needsUpdate = true;
+  });
+  portraitCache.set(path, tex);
+  return tex;
 }
 
 const players = [];
@@ -334,7 +368,7 @@ function initOfflinePlayers() {
     attachLabel(player, player.isLocal ? 'You' : `Bot ${idx}`);
     const portraitPath = playerPortraits[side];
     if (portraitPath) {
-      const tex = texLoader.load(portraitPath);
+      const tex = loadPortraitTexture(portraitPath);
       attachPortrait(player, tex);
     }
     players.push(player);
@@ -353,8 +387,31 @@ function playerDefaultPosition(side) {
   }
 }
 
-const ballGeom = new THREE.SphereGeometry(0.45, 24, 18);
-const ballMat = new THREE.MeshStandardMaterial({ color: 0xc4c7d0, roughness: 0.25, metalness: 0.1 });
+function makeBallTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createRadialGradient(120, 100, 20, 130, 130, 120);
+  grad.addColorStop(0, '#c9d8f2');
+  grad.addColorStop(0.5, '#9fb3d8');
+  grad.addColorStop(1, '#7a8caf');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(128, 128, 120, 0, Math.PI * 2);
+  ctx.fill();
+  // highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.beginPath();
+  ctx.ellipse(110, 90, 30, 18, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.anisotropy = 4;
+  return tex;
+}
+
+const ballGeom = new THREE.SphereGeometry(0.45, 32, 20);
+const ballMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: makeBallTexture(), roughness: 0.2, metalness: 0.05, envMapIntensity: 0.2 });
 let ballMesh = new THREE.Mesh(ballGeom, ballMat);
 ballMesh.castShadow = true;
 ballMesh.position.y = 0.45;
@@ -690,7 +747,7 @@ function syncNetPlayers(snapshotPlayers) {
       attachLabel(player, sp.id);
       const portraitPath = playerPortraits[sp.side];
       if (portraitPath) {
-        const tex = texLoader.load(portraitPath);
+        const tex = loadPortraitTexture(portraitPath);
         attachPortrait(player, tex);
       }
       players.push(player);
