@@ -52,6 +52,7 @@ const net = {
   reconnectTimer: null,
   latencyMs: null,
   shouldReconnect: !!wsUrl,
+  hasSnapshot: false,
 };
 const gltfLoader = new GLTFLoader();
 
@@ -224,9 +225,7 @@ function initOfflinePlayers() {
   });
 }
 
-if (!net.enabled) {
-  initOfflinePlayers();
-}
+initOfflinePlayers();
 
 function playerDefaultPosition(side) {
   switch (side) {
@@ -374,7 +373,7 @@ function connectWebSocket(url) {
     clearTimeout(net.reconnectTimer);
     net.reconnectTimer = null;
   }
-  net.ws = new WebSocket(url);
+    net.ws = new WebSocket(url);
   net.ws.addEventListener('open', () => {
     net.connected = true;
     net.reconnectDelay = 1000;
@@ -396,6 +395,10 @@ function connectWebSocket(url) {
         if (typeof msg.t === 'number') {
           const sample = Math.max(0, Date.now() - msg.t);
           net.latencyMs = net.latencyMs == null ? sample : THREE.MathUtils.lerp(net.latencyMs, sample, 0.25);
+        }
+        if (!net.hasSnapshot) {
+          clearPlayers();
+          net.hasSnapshot = true;
         }
         net.snapshot = msg;
       }
@@ -419,8 +422,6 @@ function connectWebSocket(url) {
 }
 
 if (net.enabled) {
-  players.forEach((p) => scene.remove(p.mesh));
-  players.length = 0;
   net.shouldReconnect = true;
   connectWebSocket(net.wsUrl);
 }
@@ -433,6 +434,7 @@ function stopNet() {
   net.side = null;
   net.snapshot = null;
   net.latencyMs = null;
+  net.hasSnapshot = false;
   if (net.reconnectTimer) {
     clearTimeout(net.reconnectTimer);
     net.reconnectTimer = null;
@@ -452,6 +454,7 @@ function startNet(url) {
   net.enabled = true;
   net.snapshot = null;
   net.latencyMs = null;
+  net.hasSnapshot = false;
   clearPlayers();
   connectWebSocket(net.wsUrl);
 }
