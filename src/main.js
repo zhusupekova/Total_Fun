@@ -488,9 +488,10 @@ async function hydrateWithGltf() {
     if (size.x > 0.1 && size.z > 0.1) {
       const scaleX = ARENA.width / size.x;
       const scaleZ = ARENA.height / size.z;
-      deco.scale.set(scaleX, Math.min(scaleX, scaleZ), scaleZ);
+      const scaleY = Math.min(scaleX, scaleZ) * 0.1;
+      deco.scale.set(scaleX, scaleY, scaleZ);
     }
-    deco.position.y = 0.01;
+    deco.position.y = 0.02;
     scene.add(deco);
   }
 
