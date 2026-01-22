@@ -33,10 +33,17 @@ scene.add(dir);
 const ARENA = { width: 16, height: 10, wallHeight: 1.2, playerDepth: 0.7 };
 const ASSETS = {
   arena: 'assets/arena.glb',
-  player: 'assets/player.glb',
   ball: 'assets/ball.glb',
+  playerFallback: 'assets/player.glb',
+  players: {
+    top: 'assets/player_cat.glb',
+    right: 'assets/player_dog.glb',
+    bottom: 'assets/player_duck.glb',
+    left: 'assets/player_pigeon.glb',
+  },
 };
-let playerPrefab = null;
+const playerPrefabs = new Map();
+let playerFallbackPrefab = null;
 const params = new URLSearchParams(window.location.search);
 const wsUrl = params.get('ws');
 const net = {
@@ -73,6 +80,10 @@ async function loadOptionalGltf(url) {
     console.warn('Optional GLTF not found/failed:', url);
     return null;
   }
+}
+
+function prefabForSide(side) {
+  return playerPrefabs.get(side) || playerFallbackPrefab;
 }
 
 function createArena() {
@@ -224,10 +235,14 @@ const playerColorBySide = {
   bottom: 0xffd74a, // duck yellow
   left: 0x6d87b3, // pigeon blue
 };
+function prefabForSide(side) {
+  return playerPrefabs.get(side) || playerFallbackPrefab || null;
+}
 
 function createPlayer(colorIndex, side) {
-  if (playerPrefab) {
-    const cloned = cloneSkinned(playerPrefab);
+  const prefab = prefabForSide(side);
+  if (prefab) {
+    const cloned = cloneSkinned(prefab);
     enableShadows(cloned);
     cloned.rotation.y = sideYaw[side] ?? 0;
     cloned.userData.side = side;
@@ -404,6 +419,26 @@ function initOfflinePlayers() {
       attachPortrait(player, tex);
     }
     players.push(player);
+  });
+}
+
+function applyPrefabsToExistingPlayers() {
+  players.forEach((p) => {
+    const prefab = prefabForSide(p.side);
+    if (!prefab) return;
+    const model = cloneSkinned(prefab);
+    enableShadows(model);
+    model.rotation.y = sideYaw[p.side] ?? 0;
+    model.position.copy(p.mesh.position);
+    scene.remove(p.mesh);
+    p.mesh = model;
+    scene.add(model);
+    attachLabel(p, p.isLocal ? (p.id === 'local' ? 'You' : p.id) : p.id || 'player');
+    const portraitPath = playerPortraits[p.side];
+    if (portraitPath) {
+      const tex = loadPortraitTexture(portraitPath);
+      attachPortrait(p, tex);
+    }
   });
 }
 
@@ -672,8 +707,31 @@ function startNet(url) {
   connectWebSocket(net.wsUrl);
 }
 
+function applyPrefabsToExistingPlayers() {
+  players.forEach((p) => {
+    const prefab = prefabForSide(p.side);
+    if (!prefab) return;
+    const model = cloneSkinned(prefab);
+    enableShadows(model);
+    model.position.copy(p.mesh.position);
+    model.rotation.y = sideYaw[p.side] ?? 0;
+    model.userData.side = p.side;
+    scene.remove(p.mesh);
+    p.mesh = model;
+    scene.add(model);
+  });
+}
+
 async function hydrateWithGltf() {
-  const arenaGltf = await loadOptionalGltf(ASSETS.arena);
+  const arenaPromise = loadOptionalGltf(ASSETS.arena);
+  const ballPromise = loadOptionalGltf(ASSETS.ball);
+  const fallbackPromise = ASSETS.playerFallback ? loadOptionalGltf(ASSETS.playerFallback) : Promise.resolve(null);
+  const playerPromises = Object.entries(ASSETS.players || {}).map(async ([side, url]) => {
+    const gltf = await loadOptionalGltf(url);
+    return [side, gltf];
+  });
+
+  const arenaGltf = await arenaPromise;
   if (arenaGltf) {
     const deco = arenaGltf.scene;
     enableShadows(deco);
@@ -690,23 +748,27 @@ async function hydrateWithGltf() {
     scene.add(deco);
   }
 
-  const playerGltf = await loadOptionalGltf(ASSETS.player);
-  if (playerGltf) {
-    playerPrefab = playerGltf.scene;
-    enableShadows(playerPrefab);
-    players.forEach((p) => {
-      const model = cloneSkinned(playerPrefab);
-      enableShadows(model);
-      model.position.copy(p.mesh.position);
-      model.rotation.y = sideYaw[p.side] ?? 0;
-      model.userData.side = p.side;
-      scene.remove(p.mesh);
-      p.mesh = model;
-      scene.add(model);
-    });
+  const fallbackGltf = await fallbackPromise;
+  playerPrefabs.clear();
+  playerFallbackPrefab = null;
+  if (fallbackGltf) {
+    playerFallbackPrefab = fallbackGltf.scene;
+    enableShadows(playerFallbackPrefab);
   }
 
-  const ballGltf = await loadOptionalGltf(ASSETS.ball);
+  const playerResults = await Promise.all(playerPromises);
+  playerResults.forEach(([side, gltf]) => {
+    if (!gltf) return;
+    const prefab = gltf.scene;
+    enableShadows(prefab);
+    playerPrefabs.set(side, prefab);
+  });
+
+  if (playerPrefabs.size || playerFallbackPrefab) {
+    applyPrefabsToExistingPlayers();
+  }
+
+  const ballGltf = await ballPromise;
   if (ballGltf) {
     const model = ballGltf.scene;
     enableShadows(model);
