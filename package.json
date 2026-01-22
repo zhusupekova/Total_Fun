@@ -6,12 +6,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "build:assets": "node tools/generate_placeholders.js"
+    "build:assets": "node tools/generate_placeholders.js",
+    "smoke:ws": "node tools/ws_smoke.js"
   },
   "dependencies": {
     "next": "^14.2.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "three": "^0.161.0"
+    "three": "^0.161.0",
+    "ws": "^8.18.0"
   }
 }
