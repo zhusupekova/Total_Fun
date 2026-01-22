@@ -50,6 +50,7 @@ const net = {
   lastInput: null,
   reconnectDelay: 1000,
   reconnectTimer: null,
+  latencyMs: null,
 };
 const gltfLoader = new GLTFLoader();
 
@@ -312,6 +313,10 @@ function connectWebSocket(url) {
         }
       }
       if (msg.type === 'state') {
+        if (typeof msg.t === 'number') {
+          const sample = Math.max(0, Date.now() - msg.t);
+          net.latencyMs = net.latencyMs == null ? sample : THREE.MathUtils.lerp(net.latencyMs, sample, 0.25);
+        }
         net.snapshot = msg;
       }
     } catch (err) {
@@ -488,7 +493,8 @@ function updateHud() {
   if (!net.enabled) {
     netEl.textContent = 'Mode: offline demo (local physics + bots)';
   } else if (net.connected) {
-    netEl.textContent = `Mode: online WS (${net.wsUrl}) — player ${net.id ?? '?'} side ${net.side ?? '?'}`;
+    const ping = net.latencyMs != null ? `, ping ~${net.latencyMs.toFixed(0)}ms` : '';
+    netEl.textContent = `Mode: online WS (${net.wsUrl}) — player ${net.id ?? '?'} side ${net.side ?? '?'}${ping}`;
   } else {
     netEl.textContent = `Mode: online WS connecting to ${net.wsUrl || ''}`;
   }
