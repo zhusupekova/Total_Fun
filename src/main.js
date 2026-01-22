@@ -55,6 +55,7 @@ const net = {
   hasSnapshot: false,
 };
 const gltfLoader = new GLTFLoader();
+const texLoader = new THREE.TextureLoader();
 
 function enableShadows(object) {
   object.traverse((child) => {
@@ -77,38 +78,71 @@ async function loadOptionalGltf(url) {
 function createArena() {
   const group = new THREE.Group();
 
+  // main floor
   const floorGeom = new THREE.PlaneGeometry(ARENA.width, ARENA.height);
   const floorCanvas = document.createElement('canvas');
-  floorCanvas.width = 512;
-  floorCanvas.height = 512;
+  floorCanvas.width = 1024;
+  floorCanvas.height = 1024;
   const fctx = floorCanvas.getContext('2d');
-  const grad = fctx.createRadialGradient(256, 256, 60, 256, 256, 260);
-  grad.addColorStop(0, '#2b3648');
-  grad.addColorStop(1, '#212a39');
-  fctx.fillStyle = grad;
-  fctx.fillRect(0, 0, 512, 512);
-  fctx.fillStyle = 'rgba(255,255,255,0.03)';
-  for (let i = 0; i < 40; i++) {
-    fctx.fillRect(Math.random() * 512, Math.random() * 512, 8, 8);
+  fctx.fillStyle = '#d6d1cf';
+  fctx.fillRect(0, 0, 1024, 1024);
+  fctx.fillStyle = '#c9c3c0';
+  for (let i = 0; i < 18; i++) {
+    const w = 180 + Math.random() * 220;
+    const h = 40 + Math.random() * 80;
+    const x = Math.random() * (1024 - w);
+    const y = Math.random() * (1024 - h);
+    fctx.beginPath();
+    fctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, Math.random(), 0, Math.PI * 2);
+    fctx.fill();
   }
   const floorTex = new THREE.CanvasTexture(floorCanvas);
   floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
-  floorTex.repeat.set(2, 2);
-  const floorMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: floorTex, roughness: 0.9, metalness: 0.05 });
+  floorTex.repeat.set(1, 1);
+  const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.8, metalness: 0.05 });
   const floor = new THREE.Mesh(floorGeom, floorMat);
   floor.receiveShadow = true;
   floor.rotation.x = -Math.PI / 2;
   group.add(floor);
 
-  const markings = new THREE.GridHelper(ARENA.width, ARENA.width / 1, 0x3b4b6b, 0x2c3b55);
-  markings.position.y = 0.01;
-  markings.rotation.y = Math.PI / 2;
-  markings.material.opacity = 0.35;
-  markings.material.transparent = true;
-  group.add(markings);
+  // track/rail around edges
+  const railCanvas = document.createElement('canvas');
+  railCanvas.width = 256;
+  railCanvas.height = 64;
+  const rctx = railCanvas.getContext('2d');
+  rctx.fillStyle = '#0e1624';
+  rctx.fillRect(0, 0, 256, 64);
+  rctx.fillStyle = '#1ee0d7';
+  for (let i = 0; i < 12; i++) {
+    rctx.roundRect(8 + i * 20, 16, 14, 32, 4);
+    rctx.fill();
+  }
+  const railTex = new THREE.CanvasTexture(railCanvas);
+  railTex.wrapS = railTex.wrapT = THREE.RepeatWrapping;
+  railTex.repeat.set(20, 1);
 
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0x3a4b69, metalness: 0.25, roughness: 0.45, emissive: 0x0d6cf5, emissiveIntensity: 0.08 });
-  const wallThickness = 0.4;
+  const railMat = new THREE.MeshStandardMaterial({ map: railTex, emissive: 0x0b9dad, emissiveIntensity: 0.35, metalness: 0.2, roughness: 0.4 });
+  const railH = 0.4;
+  const railT = 0.35;
+  const railGeomH = new THREE.BoxGeometry(ARENA.width + railT * 2, railH, railT);
+  const railGeomV = new THREE.BoxGeometry(railT, railH, ARENA.height + railT * 2);
+  const railTop = new THREE.Mesh(railGeomH, railMat);
+  railTop.position.set(0, railH / 2, -ARENA.height / 2 - railT / 2);
+  const railBottom = railTop.clone();
+  railBottom.position.z = ARENA.height / 2 + railT / 2;
+  const railLeft = new THREE.Mesh(railGeomV, railMat);
+  railLeft.position.set(-ARENA.width / 2 - railT / 2, railH / 2, 0);
+  const railRight = railLeft.clone();
+  railRight.position.x = ARENA.width / 2 + railT / 2;
+  [railTop, railBottom, railLeft, railRight].forEach((r) => {
+    r.castShadow = true;
+    r.receiveShadow = true;
+    group.add(r);
+  });
+
+  // outer wall
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x2b3d64, metalness: 0.2, roughness: 0.5 });
+  const wallThickness = 0.6;
   const wallHeight = ARENA.wallHeight;
   const edgeGeomH = new THREE.BoxGeometry(ARENA.width + wallThickness * 2, wallHeight, wallThickness);
   const edgeGeomV = new THREE.BoxGeometry(wallThickness, wallHeight, ARENA.height + wallThickness * 2);
@@ -141,6 +175,12 @@ const sideYaw = {
   right: Math.PI / 2,
   bottom: Math.PI,
   left: -Math.PI / 2,
+};
+const playerPortraits = {
+  top: 'ref_character_cat.jpeg',
+  right: 'ref_character_dog.png',
+  bottom: 'ref_character_duck.jpeg',
+  left: 'ref_character_pigeon.jpeg',
 };
 
 function createPlayer(colorIndex, side) {
@@ -212,6 +252,23 @@ function attachLabel(player, text) {
   player.label = label;
 }
 
+function attachPortrait(player, texture) {
+  if (player.portrait) {
+    player.mesh.remove(player.portrait);
+    if (player.portrait.material.map) player.portrait.material.map.dispose();
+    player.portrait.material.dispose();
+  }
+  if (!texture) return;
+  const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
+  const sprite = new THREE.Sprite(spriteMat);
+  const aspect = texture.image ? texture.image.width / texture.image.height : 1;
+  const baseH = 1.4;
+  sprite.scale.set(baseH * aspect, baseH, 1);
+  sprite.position.set(0, 2.6, 0);
+  player.mesh.add(sprite);
+  player.portrait = sprite;
+}
+
 const players = [];
 const sides = ['top', 'right', 'bottom', 'left'];
 
@@ -239,6 +296,11 @@ function initOfflinePlayers() {
     scene.add(mesh);
     const player = { mesh, side, isLocal: idx === 0, id: idx === 0 ? 'local' : `bot-${idx}` };
     attachLabel(player, player.isLocal ? 'You' : `Bot ${idx}`);
+    const portraitPath = playerPortraits[side];
+    if (portraitPath) {
+      const tex = texLoader.load(portraitPath);
+      attachPortrait(player, tex);
+    }
     players.push(player);
   });
 }
@@ -256,7 +318,7 @@ function playerDefaultPosition(side) {
 }
 
 const ballGeom = new THREE.SphereGeometry(0.45, 24, 18);
-const ballMat = new THREE.MeshStandardMaterial({ color: 0x9ad1ff, roughness: 0.2, metalness: 0.3 });
+const ballMat = new THREE.MeshStandardMaterial({ color: 0xc4c7d0, roughness: 0.25, metalness: 0.1 });
 let ballMesh = new THREE.Mesh(ballGeom, ballMat);
 ballMesh.castShadow = true;
 ballMesh.position.y = 0.45;
@@ -590,6 +652,11 @@ function syncNetPlayers(snapshotPlayers) {
       scene.add(mesh);
       player = { mesh, side: sp.side, id: sp.id, isLocal: false };
       attachLabel(player, sp.id);
+      const portraitPath = playerPortraits[sp.side];
+      if (portraitPath) {
+        const tex = texLoader.load(portraitPath);
+        attachPortrait(player, tex);
+      }
       players.push(player);
     }
     player.isLocal = sp.id === net.id;
