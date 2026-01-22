@@ -20,8 +20,8 @@ camera.lookAt(0, 0, 0);
 const hemi = new THREE.HemisphereLight(0xa0d8ff, 0x1a1f2a, 0.8);
 scene.add(hemi);
 
-const dir = new THREE.DirectionalLight(0xffffff, 1.1);
-dir.position.set(8, 14, 8);
+const dir = new THREE.DirectionalLight(0xffffff, 1.25);
+dir.position.set(10, 16, 9);
 dir.castShadow = true;
 dir.shadow.camera.left = -16;
 dir.shadow.camera.right = 16;
@@ -233,27 +233,59 @@ function createPlayer(colorIndex, side) {
     cloned.userData.side = side;
     return cloned;
   }
-  const bodyGeom = new THREE.BoxGeometry(2.2, 0.8, ARENA.playerDepth);
+  const group = new THREE.Group();
   const color = playerColorBySide[side] ?? playerMatColors[colorIndex];
-  const mat = new THREE.MeshStandardMaterial({ color, metalness: 0.1, roughness: 0.5 });
-  const mesh = new THREE.Mesh(bodyGeom, mat);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
+  const bodyGeom = new THREE.CapsuleGeometry(0.6, 0.8, 8, 12);
+  const bodyMat = new THREE.MeshStandardMaterial({ color, metalness: 0.05, roughness: 0.6 });
+  const body = new THREE.Mesh(bodyGeom, bodyMat);
+  body.position.y = 0.9;
+  group.add(body);
 
-  const paddleGeom = new THREE.BoxGeometry(2.2, 0.4, 0.3);
-  const paddleMat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.05, roughness: 0.3 });
-  const paddle = new THREE.Mesh(paddleGeom, paddleMat);
-  paddle.position.y = 0.4;
-  mesh.add(paddle);
+  const headGeom = new THREE.SphereGeometry(0.55, 16, 12);
+  const headMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.05 });
+  const head = new THREE.Mesh(headGeom, headMat);
+  head.position.y = 1.7;
+  group.add(head);
 
-  const baseGeom = new THREE.CylinderGeometry(1.2, 1.3, 0.25, 14);
-  const baseMat = new THREE.MeshStandardMaterial({ color: 0x222a3a, roughness: 0.8 });
+  const noseGeom = new THREE.SphereGeometry(0.18, 12, 8);
+  const nose = new THREE.Mesh(noseGeom, new THREE.MeshStandardMaterial({ color: 0x442a26, roughness: 0.4 }));
+  nose.position.set(0, 1.6, 0.45);
+  group.add(nose);
+
+  const eyeGeom = new THREE.SphereGeometry(0.12, 10, 8);
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0x000000 });
+  const eyeL = new THREE.Mesh(eyeGeom, eyeMat);
+  eyeL.position.set(-0.18, 1.75, 0.45);
+  const eyeR = eyeL.clone();
+  eyeR.position.x = 0.18;
+  group.add(eyeL, eyeR);
+
+  const browGeom = new THREE.BoxGeometry(0.26, 0.06, 0.02);
+  const brow = new THREE.Mesh(browGeom, new THREE.MeshStandardMaterial({ color: 0x7b3b28 }));
+  const browL = brow.clone();
+  browL.position.set(-0.2, 1.9, 0.45);
+  browL.rotation.z = 0.15;
+  const browR = brow.clone();
+  browR.position.set(0.2, 1.9, 0.45);
+  browR.rotation.z = -0.15;
+  group.add(browL, browR);
+
+  // base (vehicle)
+  const baseGeom = new THREE.CylinderGeometry(1.2, 1.3, 0.25, 16);
+  const baseMat = new THREE.MeshStandardMaterial({ color: 0x222a3a, roughness: 0.75 });
   const base = new THREE.Mesh(baseGeom, baseMat);
-  base.position.y = -0.4;
-  mesh.add(base);
+  base.position.y = 0.1;
+  group.add(base);
 
-  mesh.userData.side = side;
-  return mesh;
+  const bumperGeom = new THREE.TorusGeometry(1.3, 0.18, 12, 24);
+  const bumperMat = new THREE.MeshStandardMaterial({ color: 0xf05b4d, roughness: 0.5, metalness: 0.15, emissive: 0x3f0f0f, emissiveIntensity: 0.12 });
+  const bumper = new THREE.Mesh(bumperGeom, bumperMat);
+  bumper.rotation.x = Math.PI / 2;
+  bumper.position.y = 0.2;
+  group.add(bumper);
+
+  group.userData.side = side;
+  return group;
 }
 
 function makeLabel(text, color = '#ffffff') {
@@ -305,9 +337,9 @@ function attachPortrait(player, texture) {
   const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
   const sprite = new THREE.Sprite(spriteMat);
   const aspect = texture.image ? texture.image.width / texture.image.height : 1;
-  const baseH = 1.6;
+  const baseH = 1.2;
   sprite.scale.set(baseH * aspect, baseH, 1);
-  sprite.position.set(0, 2.8, 0);
+  sprite.position.set(0, 2.5, 0);
   player.mesh.add(sprite);
   player.portrait = sprite;
 }
@@ -696,11 +728,11 @@ function colorIndexBySide(side) {
 function clampPlayer(pos, side) {
   const margin = 0.4;
   if (side === 'top' || side === 'bottom') {
-    const z = side === 'top' ? -ARENA.height / 2 + ARENA.playerDepth : ARENA.height / 2 - ARENA.playerDepth;
+    const z = side === 'top' ? -ARENA.height / 2 + 1.1 : ARENA.height / 2 - 1.1;
     pos.z = z;
     pos.x = THREE.MathUtils.clamp(pos.x, -ARENA.width / 2 + margin, ARENA.width / 2 - margin);
   } else {
-    const x = side === 'left' ? -ARENA.width / 2 + ARENA.playerDepth : ARENA.width / 2 - ARENA.playerDepth;
+    const x = side === 'left' ? -ARENA.width / 2 + 1.1 : ARENA.width / 2 - 1.1;
     pos.x = x;
     pos.z = THREE.MathUtils.clamp(pos.z, -ARENA.height / 2 + margin, ARENA.height / 2 - margin);
   }
