@@ -184,10 +184,10 @@ function createArena() {
   const triGeom = new THREE.ConeGeometry(0.7, 0.05, 3);
   const triMat = new THREE.MeshStandardMaterial({ color: 0x2f3c4f, metalness: 0.1, roughness: 0.6 });
   const triOffsets = [
-    [-ARENA.width * 0.25, -ARENA.height * 0.15],
-    [ARENA.width * 0.25, ARENA.height * 0.15],
-    [ARENA.width * 0.1, -ARENA.height * 0.32],
-    [-ARENA.width * 0.1, ARENA.height * 0.32],
+    [-ARENA.width * 0.3, -ARENA.height * 0.05],
+    [ARENA.width * 0.3, ARENA.height * 0.05],
+    [ARENA.width * 0.1, -ARENA.height * 0.3],
+    [-ARENA.width * 0.1, ARENA.height * 0.3],
   ];
   triOffsets.forEach(([x, z], idx) => {
     const tri = new THREE.Mesh(triGeom, triMat);
