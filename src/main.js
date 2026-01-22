@@ -239,9 +239,6 @@ const playerColorBySide = {
   bottom: 0xffd74a, // duck yellow
   left: 0x6d87b3, // pigeon blue
 };
-function prefabForSide(side) {
-  return playerPrefabs.get(side) || playerFallbackPrefab || null;
-}
 
 function createPlayer(colorIndex, side) {
   const prefab = prefabForSide(side);
