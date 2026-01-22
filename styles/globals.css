@@ -117,30 +117,29 @@ html, body, #__next {
   position: absolute;
   bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   left: calc(16px + env(safe-area-inset-left, 0px));
-  display: grid;
-  grid-template-columns: 60px 60px 60px;
-  grid-template-rows: 60px 60px 60px;
-  gap: 6px;
-  opacity: 0.85;
+  width: 160px;
+  height: 160px;
+  opacity: 0.9;
   user-select: none;
   touch-action: none;
 }
 
-.tc-btn {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 14px;
-  color: #e6f2ff;
-  font-size: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+.stick-base {
+  position: absolute;
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 60%, rgba(255,255,255,0) 80%);
+  border: 1px solid rgba(255,255,255,0.1);
 }
 
-.tc-btn:active {
-  background: rgba(154, 232, 255, 0.25);
-  border-color: rgba(154, 232, 255, 0.5);
+.stick-thumb {
+  position: absolute;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: rgba(154, 232, 255, 0.24);
+  border: 1px solid rgba(154, 232, 255, 0.45);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+  transform: translate(44px, 44px);
 }
-
-.tc-empty { opacity: 0; }

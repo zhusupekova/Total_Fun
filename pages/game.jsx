@@ -35,13 +35,8 @@ function GameView() {
         <div id="players-list" />
       </div>
       <div id="touch-controls">
-        <div className="tc-empty" />
-        <div className="tc-btn" data-dir="up">▲</div>
-        <div className="tc-empty" />
-        <div className="tc-btn" data-dir="left">◀</div>
-        <div className="tc-btn" data-dir="down">▼</div>
-        <div className="tc-btn" data-dir="right">▶</div>
-        <div className="tc-empty" />
+        <div className="stick-base" />
+        <div className="stick-thumb" id="stick-thumb" />
       </div>
     </>
   );

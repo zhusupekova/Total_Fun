@@ -19,6 +19,7 @@ async function runClient(idx) {
       closed: false,
       side: null,
       code: null,
+      snapshot: false,
     };
     const timer = setTimeout(() => {
       result.error = result.error || 'TIMEOUT';
@@ -49,10 +50,15 @@ async function runClient(idx) {
           resolve(result);
         }
         if (msg.type === 'SNAPSHOT' && !result.welcome) {
-          // If we somehow get snapshots before welcome, treat as handshake fail.
           result.error = 'NO_WELCOME';
           ws.close();
           clearTimeout(timer);
+          resolve(result);
+        }
+        if (msg.type === 'SNAPSHOT' && result.welcome) {
+          result.snapshot = true;
+          clearTimeout(timer);
+          ws.close();
           resolve(result);
         }
       } catch (err) {
@@ -89,6 +95,7 @@ async function main() {
   const welcomed = results.filter((r) => r.welcome);
   const roomFull = results.find((r) => r.code === 'ROOM_FULL');
   const failed = results.filter((r) => !r.welcome && !r.code);
+  const missingSnapshots = results.filter((r) => r.welcome && !r.snapshot && !r.code);
 
   console.log('WS smoke summary:', { welcomed: welcomed.length, roomFull: !!roomFull, total: results.length });
   results.forEach((r) => {
@@ -97,7 +104,7 @@ async function main() {
     );
   });
 
-  if (welcomed.length === 4 && roomFull && failed.length === 0) {
+  if (welcomed.length === 4 && roomFull && failed.length === 0 && missingSnapshots.length === 0) {
     process.exit(0);
   } else {
     process.exit(1);

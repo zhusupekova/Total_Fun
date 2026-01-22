@@ -641,49 +641,51 @@ window.addEventListener('keyup', (e) => {
 
 function bindTouchControls() {
   const root = document.getElementById('touch-controls');
-  if (!root) return;
-  const active = new Set();
-  const setDir = (dir, down) => {
-    if (dir === 'up') input.forward = down;
-    if (dir === 'down') input.back = down;
-    if (dir === 'left') input.left = down;
-    if (dir === 'right') input.right = down;
+  const thumb = document.getElementById('stick-thumb');
+  if (!root || !thumb) return;
+  let pointerId = null;
+
+  const resetStick = () => {
+    thumb.style.transform = 'translate(44px, 44px)';
+    input.forward = input.back = input.left = input.right = false;
   };
-  const handleDown = (dir, id) => {
-    active.add(id);
-    setDir(dir, true);
+
+  const handleMove = (e) => {
+    if (pointerId == null || e.pointerId !== pointerId) return;
+    const rect = root.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const dx = e.clientX - cx;
+    const dy = e.clientY - cy;
+    const maxR = rect.width / 2;
+    const dist = Math.min(Math.hypot(dx, dy), maxR);
+    const nx = dist === 0 ? 0 : dx / dist;
+    const ny = dist === 0 ? 0 : dy / dist;
+    const clampR = maxR - 36; // keep thumb inside base
+    thumb.style.transform = `translate(${clampR * nx + clampR + 8}px, ${clampR * ny + clampR + 8}px)`;
+
+    // y axis inverted: up = negative dy
+    const dead = 0.15;
+    input.left = nx < -dead;
+    input.right = nx > dead;
+    input.forward = ny < -dead;
+    input.back = ny > dead;
   };
-  const handleUp = (id) => {
-    active.delete(id);
-    // recompute all directions from active pointers
-    input.forward = false;
-    input.back = false;
-    input.left = false;
-    input.right = false;
-    active.forEach((stored) => {
-      const btn = root.querySelector(`[data-id="${stored}"]`);
-      if (!btn) return;
-      const dir = btn.dataset.dir;
-      setDir(dir, true);
-    });
-  };
-  const buttons = root.querySelectorAll('.tc-btn');
-  buttons.forEach((btn, idx) => {
-    btn.dataset.id = `touch-${idx}`;
-    btn.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      btn.setPointerCapture(e.pointerId);
-      handleDown(btn.dataset.dir, e.pointerId.toString());
-    });
-    btn.addEventListener('pointerup', (e) => {
-      e.preventDefault();
-      handleUp(e.pointerId.toString());
-      btn.releasePointerCapture(e.pointerId);
-    });
-    btn.addEventListener('pointercancel', (e) => {
-      handleUp(e.pointerId.toString());
-    });
+
+  root.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    pointerId = e.pointerId;
+    root.setPointerCapture(pointerId);
+    handleMove(e);
   });
+  root.addEventListener('pointermove', handleMove);
+  const end = (e) => {
+    if (pointerId == null || e.pointerId !== pointerId) return;
+    pointerId = null;
+    resetStick();
+  };
+  root.addEventListener('pointerup', end);
+  root.addEventListener('pointercancel', end);
 }
 
 function bindNetControls() {
