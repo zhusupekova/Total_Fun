@@ -462,10 +462,18 @@ function startNet(url) {
 async function hydrateWithGltf() {
   const arenaGltf = await loadOptionalGltf(ASSETS.arena);
   if (arenaGltf) {
-    scene.remove(arenaGroup);
-    arenaGroup = arenaGltf.scene;
-    enableShadows(arenaGroup);
-    scene.add(arenaGroup);
+    const deco = arenaGltf.scene;
+    enableShadows(deco);
+    const box = new THREE.Box3().setFromObject(deco);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    if (size.x > 0.1 && size.z > 0.1) {
+      const scaleX = ARENA.width / size.x;
+      const scaleZ = ARENA.height / size.z;
+      deco.scale.set(scaleX, Math.min(scaleX, scaleZ), scaleZ);
+    }
+    deco.position.y = 0.01;
+    scene.add(deco);
   }
 
   const playerGltf = await loadOptionalGltf(ASSETS.player);
