@@ -49,6 +49,7 @@ const wsUrl = params.get('ws');
 const audioContext = typeof AudioContext !== 'undefined' ? new AudioContext() : null;
 const sfxBuffers = new Map();
 let audioUnlocked = false;
+const audioState = { enabled: true };
 const net = {
   enabled: !!wsUrl,
   wsUrl: wsUrl || 'ws://localhost:7071',
@@ -350,7 +351,7 @@ async function loadSfx(name, url) {
 }
 
 function playSfx(name, volume = 0.8) {
-  if (!audioContext || !audioUnlocked) return;
+  if (!audioContext || !audioUnlocked || !audioState.enabled) return;
   const buffer = sfxBuffers.get(name);
   if (!buffer) return;
   const src = audioContext.createBufferSource();
@@ -623,6 +624,7 @@ function bindNetControls() {
   const input = document.getElementById('ws-url');
   const btnConnect = document.getElementById('btn-connect');
   const btnDisconnect = document.getElementById('btn-disconnect');
+  const btnAudio = document.getElementById('audio-toggle');
   if (input && net.wsUrl) input.value = net.wsUrl;
   if (btnConnect) {
     btnConnect.addEventListener('click', () => {
@@ -634,6 +636,16 @@ function bindNetControls() {
     btnDisconnect.addEventListener('click', () => {
       stopNet();
     });
+  }
+  if (btnAudio) {
+    const refresh = () => {
+      btnAudio.textContent = `Sound: ${audioState.enabled ? 'on' : 'off'}`;
+    };
+    btnAudio.addEventListener('click', () => {
+      audioState.enabled = !audioState.enabled;
+      refresh();
+    });
+    refresh();
   }
 }
 

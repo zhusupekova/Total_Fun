@@ -37,6 +37,16 @@
     #hud code { color: #ffd66b; }
     #hud .row { margin-bottom: 4px; }
     #hud .row:last-child { margin-bottom: 0; }
+    #audio-toggle {
+      margin-top: 6px;
+      padding: 4px 8px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.08);
+      color: #e6f2ff;
+      cursor: pointer;
+      font-size: 12px;
+    }
     #net-panel {
       position: absolute;
       top: 12px;
@@ -127,6 +137,7 @@
     <div class="row">Bots: three AI paddles move and reflect the ball</div>
     <div class="row">Stage 1: arena + custom light physics (optional WS)</div>
     <div class="row" id="net-status"></div>
+    <button id="audio-toggle">Sound: on</button>
   </div>
   <div id="net-panel">
     <div>WebSocket server</div>
