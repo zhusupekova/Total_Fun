@@ -41,7 +41,7 @@ if (typeof URL === 'undefined' || !URL.createObjectURL) {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const root = path.resolve(__dirname, '..');
-const assetsDir = path.join(root, 'assets');
+const assetsDir = path.join(root, 'public', 'assets');
 
 const exporter = new GLTFExporter();
 

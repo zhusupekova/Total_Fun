@@ -1,6 +1,6 @@
 # Assets stub
 
-Place GLB models here (exported from Blender, glTF/GLB):
+Place GLB models here (exported from Blender, glTF/GLB). Everything in `public/assets` is served at runtime under `/assets/...` in the client.
 
 - `arena.glb` — статичная сцена ринга/бортов. Ориентация: центр в (0,0,0), размер около 16×10 единиц, низкая высота по Y.
 - `player.glb` — базовая модель персонажа/фолбек, клонируется на 4 слота. Ориентация: лицом вдоль +Z. Масштаб: ширина ~2.2, глубина ~0.7.
@@ -22,4 +22,4 @@ npm run build:assets
 
 Сейчас ассеты не положены — игра использует примитивы (бокс/сфера) и базовый ринг из `src/main.js`. Чтобы показать заказчику финальный визуал, добавьте свои GLB сюда.
 
-Звуки: складывайте в `assets/sfx/` (`hit_player.ogg`, `hit_wall.ogg`, `goal.ogg`, `magnet.ogg`). Поддерживаются `.ogg`/`.webm`/`.mp3`.
+Звуки: складывайте в `public/assets/sfx/` (`hit_player.ogg`, `hit_wall.ogg`, `goal.ogg`, `magnet.ogg`). Поддерживаются `.ogg`/`.webm`/`.mp3`.

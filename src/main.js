@@ -1,6 +1,6 @@
-import * as THREE from 'https://unpkg.com/three@0.161.0/build/three.module.js';
-import { GLTFLoader } from 'https://unpkg.com/three@0.161.0/examples/jsm/loaders/GLTFLoader.js';
-import { clone as cloneSkinned } from 'https://unpkg.com/three@0.161.0/examples/jsm/utils/SkeletonUtils.js';
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 const app = document.getElementById('app');
 const scene = new THREE.Scene();
@@ -17,8 +17,8 @@ const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerH
 camera.position.set(0, 13, 15);
 camera.lookAt(0, 0, 0);
 
-const hemi = new THREE.HemisphereLight(0xa0d8ff, 0x1a1f2a, 0.8);
-scene.add(hemi);
+const ambient = new THREE.AmbientLight(0x9fb7ff, 0.55);
+scene.add(ambient);
 
 const dir = new THREE.DirectionalLight(0xffffff, 1.25);
 dir.position.set(10, 16, 9);
@@ -30,22 +30,42 @@ dir.shadow.camera.bottom = -16;
 dir.shadow.mapSize.set(1024, 1024);
 scene.add(dir);
 
-const ARENA = { width: 16, height: 10, wallHeight: 1.2, playerDepth: 0.7 };
+const ARENA = { width: 16, height: 10, wallHeight: 1.2, playerDepth: 0.7, ballRadius: 0.5 };
+const SIDE_ZONES = {
+  top: { x: [-8, 8], z: [-5, -2.5] },
+  bottom: { x: [-8, 8], z: [2.5, 5] },
+  left: { x: [-8, -4], z: [-5, 5] },
+  right: { x: [4, 8], z: [-5, 5] },
+};
+const PHYSICS = {
+  playerSpeed: 6,
+  minSpeed: 2,
+  maxSpeed: 12,
+  damping: 0.995,
+};
+const MAGNETS = [
+  { center: new THREE.Vector2(-6.5, -3.5), radius: 2, strength: 4, enabled: true },
+  { center: new THREE.Vector2(6.5, -3.5), radius: 2, strength: 4, enabled: true },
+  { center: new THREE.Vector2(6.5, 3.5), radius: 2, strength: 4, enabled: true },
+  { center: new THREE.Vector2(-6.5, 3.5), radius: 2, strength: 4, enabled: true },
+];
 const ASSETS = {
-  arena: 'assets/arena.glb',
-  ball: 'assets/ball.glb',
-  playerFallback: 'assets/player.glb',
+  arena: '/assets/arena.glb',
+  ball: '/assets/ball.glb',
+  playerFallback: '/assets/player.glb',
   players: {
-    top: 'assets/player_cat.glb',
-    right: 'assets/player_dog.glb',
-    bottom: 'assets/player_duck.glb',
-    left: 'assets/player_pigeon.glb',
+    top: '/assets/player_cat.glb',
+    right: '/assets/player_dog.glb',
+    bottom: '/assets/player_duck.glb',
+    left: '/assets/player_pigeon.glb',
   },
 };
 const playerPrefabs = new Map();
 let playerFallbackPrefab = null;
 const params = new URLSearchParams(window.location.search);
 const wsUrl = params.get('ws');
+const magnetsEnabled = params.get('magnets') !== 'off';
+MAGNETS.forEach((m) => { m.enabled = magnetsEnabled; });
 const audioContext = typeof AudioContext !== 'undefined' ? new AudioContext() : null;
 const sfxBuffers = new Map();
 let audioUnlocked = false;
@@ -64,9 +84,40 @@ const net = {
   latencyMs: null,
   shouldReconnect: !!wsUrl,
   hasSnapshot: false,
+  matchState: 'OFFLINE',
+  players: new Map(),
+  connectionState: 'idle',
+  error: null,
+  lastInputSentAt: 0,
+  reconnectAttempts: 0,
+  pingId: 0,
+  lastPingTs: null,
+  identity: null,
 };
 const gltfLoader = new GLTFLoader();
 const texLoader = new THREE.TextureLoader();
+
+function resolveIdentity() {
+  const tgUser = window?.Telegram?.WebApp?.initDataUnsafe?.user;
+  const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('tf_identity') : null;
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored);
+      if (parsed.userId && parsed.username) return parsed;
+    } catch {}
+  }
+  const fallbackId = tgUser?.id ? `tg-${tgUser.id}` : `guest-${Math.random().toString(16).slice(2, 8)}`;
+  const identity = {
+    userId: tgUser?.id ? String(tgUser.id) : fallbackId,
+    username: tgUser?.username || `Player_${fallbackId.slice(-4)}`,
+  };
+  try {
+    localStorage.setItem('tf_identity', JSON.stringify(identity));
+  } catch {}
+  return identity;
+}
+
+net.identity = resolveIdentity();
 
 function enableShadows(object) {
   object.traverse((child) => {
@@ -480,13 +531,12 @@ function applyPrefabsToExistingPlayers() {
 initOfflinePlayers();
 
 function playerDefaultPosition(side) {
-  switch (side) {
-    case 'top': return { x: 0, z: -ARENA.height / 2 + ARENA.playerDepth };
-    case 'bottom': return { x: 0, z: ARENA.height / 2 - ARENA.playerDepth };
-    case 'left': return { x: -ARENA.width / 2 + ARENA.playerDepth, z: 0 };
-    case 'right': return { x: ARENA.width / 2 - ARENA.playerDepth, z: 0 };
-    default: return { x: 0, z: 0 };
-  }
+  const zone = SIDE_ZONES[side];
+  if (!zone) return { x: 0, z: 0 };
+  return {
+    x: (zone.x[0] + zone.x[1]) / 2,
+    z: (zone.z[0] + zone.z[1]) / 2,
+  };
 }
 
 function makeBallTexture() {
@@ -546,7 +596,7 @@ function setBallRadiusFromObject(object) {
 
 const ballState = {
   velocity: new THREE.Vector2(4, 2.8),
-  radius: 0.5,
+  radius: ARENA.ballRadius,
 };
 
 const input = { forward: false, back: false, left: false, right: false, paused: false };
@@ -648,18 +698,89 @@ function bindNetControls() {
 
 function resetBall() {
   if (net.enabled && net.connected && net.ws && net.ws.readyState === WebSocket.OPEN) {
-    net.ws.send(JSON.stringify({ type: 'reset_ball' }));
+    net.ws.send(JSON.stringify({ type: 'DEBUG', payload: { cmd: 'RESET_BALL' } }));
     return;
   }
   ballMesh.position.set(0, ballState.radius, 0);
   shadowMesh.position.x = ballMesh.position.x;
   shadowMesh.position.z = ballMesh.position.z;
   const angle = Math.random() * Math.PI * 2;
-  const speed = 5.5;
+  const speed = 6;
   ballState.velocity.set(Math.cos(angle) * speed, Math.sin(angle) * speed);
 }
 
 resetBall();
+
+function scheduleReconnect() {
+  if (!net.shouldReconnect) return;
+  const backoff = [1000, 2000, 3000, 5000, 8000];
+  const delay = backoff[Math.min(net.reconnectAttempts, backoff.length - 1)];
+  net.reconnectAttempts += 1;
+  net.connectionState = 'reconnecting';
+  if (net.reconnectTimer) clearTimeout(net.reconnectTimer);
+  net.reconnectTimer = setTimeout(() => connectWebSocket(net.wsUrl), delay);
+}
+
+function handleNetMessage(raw) {
+  try {
+    const msg = JSON.parse(raw.data ?? raw);
+    if (msg.type === 'PING') {
+      const ts = msg.payload?.ts;
+      if (ts) net.latencyMs = net.latencyMs == null ? Date.now() - ts : THREE.MathUtils.lerp(net.latencyMs, Date.now() - ts, 0.3);
+      net.ws?.send(JSON.stringify({ type: 'PONG', payload: { pingId: msg.payload?.pingId, ts: msg.payload?.ts } }));
+      return;
+    }
+    if (msg.type === 'WELCOME') {
+      net.connectionState = 'connected';
+      net.connected = true;
+      net.error = null;
+      net.reconnectAttempts = 0;
+      net.id = msg.payload?.playerId;
+      net.side = msg.payload?.side;
+      net.matchState = msg.payload?.matchState || net.matchState;
+      if (msg.payload?.tickRate) net.tickRate = msg.payload.tickRate;
+      if (msg.payload?.snapshotRate) net.snapshotRate = msg.payload.snapshotRate;
+      if (msg.payload?.arena) {
+        ARENA.width = msg.payload.arena.width ?? ARENA.width;
+        ARENA.height = msg.payload.arena.height ?? ARENA.height;
+        ARENA.playerDepth = msg.payload.arena.playerDepth ?? ARENA.playerDepth;
+        ARENA.ballRadius = msg.payload.arena.ballRadius ?? ballState.radius;
+        ballState.radius = ARENA.ballRadius;
+      }
+      return;
+    }
+    if (msg.type === 'ROOM_STATE') {
+      net.matchState = msg.payload?.matchState || net.matchState;
+      net.players.clear();
+      (msg.payload?.players || []).forEach((p) => {
+        const pid = p.playerId || p.id;
+        net.players.set(pid, { ...p, playerId: pid });
+      });
+      return;
+    }
+    if (msg.type === 'SNAPSHOT') {
+      net.matchState = msg.payload?.matchState || net.matchState;
+      if (!net.hasSnapshot) {
+        clearPlayers();
+        net.hasSnapshot = true;
+      }
+      net.snapshot = msg;
+      return;
+    }
+    if (msg.type === 'ERROR') {
+      net.error = msg.payload;
+      net.connectionState = 'error';
+      console.warn('[net] error', msg.payload);
+      return;
+    }
+    if (msg.type === 'MATCH_EVENT') {
+      net.matchState = msg.payload?.event?.replace('MATCH_', '') || net.matchState;
+      return;
+    }
+  } catch (err) {
+    console.warn('Bad net message', err);
+  }
+}
 
 function connectWebSocket(url) {
   if (!url || !net.shouldReconnect) return;
@@ -671,51 +792,30 @@ function connectWebSocket(url) {
     clearTimeout(net.reconnectTimer);
     net.reconnectTimer = null;
   }
-    net.ws = new WebSocket(url);
+  net.ws = new WebSocket(url);
+  net.connectionState = 'connecting';
   net.ws.addEventListener('open', () => {
-    net.connected = true;
-    net.reconnectDelay = 1000;
-    console.log('[net] connected');
+    net.connectionState = 'handshake';
+    net.reconnectAttempts = 0;
+    const hello = { type: 'HELLO', payload: { userId: net.identity?.userId, username: net.identity?.username } };
+    net.ws.send(JSON.stringify(hello));
   });
-  net.ws.addEventListener('message', (evt) => {
-    try {
-      const msg = JSON.parse(evt.data);
-      if (msg.type === 'welcome') {
-        net.id = msg.id;
-        net.side = msg.side;
-        if (msg.arena) {
-          ARENA.width = msg.arena.width ?? ARENA.width;
-          ARENA.height = msg.arena.height ?? ARENA.height;
-          ARENA.playerDepth = msg.arena.playerDepth ?? ARENA.playerDepth;
-        }
-      }
-      if (msg.type === 'state') {
-        if (typeof msg.t === 'number') {
-          const sample = Math.max(0, Date.now() - msg.t);
-          net.latencyMs = net.latencyMs == null ? sample : THREE.MathUtils.lerp(net.latencyMs, sample, 0.25);
-        }
-        if (!net.hasSnapshot) {
-          clearPlayers();
-          net.hasSnapshot = true;
-        }
-        net.snapshot = msg;
-      }
-    } catch (err) {
-      console.warn('Bad net message', err);
-    }
-  });
+  net.ws.addEventListener('message', (evt) => handleNetMessage(evt));
   net.ws.addEventListener('close', () => {
     net.connected = false;
-    console.warn('[net] disconnected');
-    if (net.shouldReconnect) {
-      net.reconnectTimer = setTimeout(() => {
-        net.reconnectDelay = Math.min(net.reconnectDelay * 1.6, 8000);
-        connectWebSocket(net.wsUrl);
-      }, net.reconnectDelay);
-    }
+    net.connectionState = 'disconnected';
+    net.side = null;
+    net.snapshot = null;
+    net.hasSnapshot = false;
+    if (net.shouldReconnect) scheduleReconnect();
   });
   net.ws.addEventListener('error', (e) => {
     console.warn('[net] error', e);
+    net.connected = false;
+    net.connectionState = 'error';
+    net.snapshot = null;
+    net.hasSnapshot = false;
+    if (net.shouldReconnect) scheduleReconnect();
   });
 }
 
@@ -733,6 +833,8 @@ function stopNet() {
   net.snapshot = null;
   net.latencyMs = null;
   net.hasSnapshot = false;
+  net.matchState = 'OFFLINE';
+  net.players.clear();
   if (net.reconnectTimer) {
     clearTimeout(net.reconnectTimer);
     net.reconnectTimer = null;
@@ -753,33 +855,20 @@ function startNet(url) {
   net.snapshot = null;
   net.latencyMs = null;
   net.hasSnapshot = false;
+  net.players.clear();
+  net.matchState = 'CONNECTING';
   clearPlayers();
   connectWebSocket(net.wsUrl);
-}
-
-function applyPrefabsToExistingPlayers() {
-  players.forEach((p) => {
-    const prefab = prefabForSide(p.side);
-    if (!prefab) return;
-    const model = cloneSkinned(prefab);
-    enableShadows(model);
-    model.position.copy(p.mesh.position);
-    model.rotation.y = sideYaw[p.side] ?? 0;
-    model.userData.side = p.side;
-    scene.remove(p.mesh);
-    p.mesh = model;
-    scene.add(model);
-  });
 }
 
 async function hydrateWithGltf() {
   const arenaPromise = loadOptionalGltf(ASSETS.arena);
   const ballPromise = loadOptionalGltf(ASSETS.ball);
   const sfxPromise = Promise.all([
-    loadSfx('hit_player', 'assets/sfx/hit_player.ogg'),
-    loadSfx('hit_wall', 'assets/sfx/hit_wall.ogg'),
-    loadSfx('goal', 'assets/sfx/goal.ogg'),
-    loadSfx('magnet', 'assets/sfx/magnet.ogg'),
+    loadSfx('hit_player', '/assets/sfx/hit_player.ogg'),
+    loadSfx('hit_wall', '/assets/sfx/hit_wall.ogg'),
+    loadSfx('goal', '/assets/sfx/goal.ogg'),
+    loadSfx('magnet', '/assets/sfx/magnet.ogg'),
   ]);
   const fallbackPromise = ASSETS.playerFallback ? loadOptionalGltf(ASSETS.playerFallback) : Promise.resolve(null);
   const playerPromises = Object.entries(ASSETS.players || {}).map(async ([side, url]) => {
@@ -844,21 +933,15 @@ function colorIndexBySide(side) {
   return idx >= 0 ? idx : 0;
 }
 
-function clampPlayer(pos, side) {
-  const margin = 0.4;
-  if (side === 'top' || side === 'bottom') {
-    const z = side === 'top' ? -ARENA.height / 2 + 1.1 : ARENA.height / 2 - 1.1;
-    pos.z = z;
-    pos.x = THREE.MathUtils.clamp(pos.x, -ARENA.width / 2 + margin, ARENA.width / 2 - margin);
-  } else {
-    const x = side === 'left' ? -ARENA.width / 2 + 1.1 : ARENA.width / 2 - 1.1;
-    pos.x = x;
-    pos.z = THREE.MathUtils.clamp(pos.z, -ARENA.height / 2 + margin, ARENA.height / 2 - margin);
-  }
+function clampPlayerToZone(pos, side) {
+  const zone = SIDE_ZONES[side];
+  if (!zone) return;
+  pos.x = THREE.MathUtils.clamp(pos.x, zone.x[0], zone.x[1]);
+  pos.z = THREE.MathUtils.clamp(pos.z, zone.z[0], zone.z[1]);
 }
 
 function moveLocalPlayer(dt) {
-  const speed = 8;
+  const speed = PHYSICS.playerSpeed;
   const player = players.find((p) => p.isLocal);
   if (!player) return;
   const dir = new THREE.Vector2(0, 0);
@@ -868,14 +951,9 @@ function moveLocalPlayer(dt) {
   if (input.right) dir.x += 1;
   if (dir.lengthSq() > 0) dir.normalize();
 
-  if (player.side === 'top' || player.side === 'bottom') {
-    player.mesh.position.x += dir.x * speed * dt;
-    player.mesh.position.z += dir.y * speed * dt * 0.25;
-  } else {
-    player.mesh.position.z += dir.y * speed * dt;
-    player.mesh.position.x += dir.x * speed * dt * 0.25;
-  }
-  clampPlayer(player.mesh.position, player.side);
+  player.mesh.position.x += dir.x * speed * dt;
+  player.mesh.position.z += dir.y * speed * dt;
+  clampPlayerToZone(player.mesh.position, player.side);
 }
 
 function moveBots(dt) {
@@ -883,27 +961,26 @@ function moveBots(dt) {
     if (p.isLocal) return;
     const target = ballMesh.position;
     const speed = 4.2;
-    if (p.side === 'top' || p.side === 'bottom') {
-      const dirX = Math.sign(target.x - p.mesh.position.x);
-      p.mesh.position.x += dirX * speed * dt;
-    } else {
-      const dirZ = Math.sign(target.z - p.mesh.position.z);
-      p.mesh.position.z += dirZ * speed * dt;
-    }
-    clampPlayer(p.mesh.position, p.side);
+    const dirX = Math.sign(target.x - p.mesh.position.x);
+    const dirZ = Math.sign(target.z - p.mesh.position.z);
+    p.mesh.position.x += dirX * speed * dt * 0.8;
+    p.mesh.position.z += dirZ * speed * dt * 0.8;
+    clampPlayerToZone(p.mesh.position, p.side);
   });
 }
 
 function syncNetPlayers(snapshotPlayers) {
   const alive = new Set();
   snapshotPlayers.forEach((sp) => {
-    let player = players.find((p) => p.id === sp.id);
+    const pid = sp.playerId || sp.id;
+    const pos = sp.pos || { x: sp.x, z: sp.z };
+    let player = players.find((p) => p.id === pid);
     if (!player) {
       const mesh = createPlayer(colorIndexBySide(sp.side), sp.side);
-      mesh.position.set(sp.x, 0.5, sp.z);
+      mesh.position.set(pos.x, 0.5, pos.z);
       scene.add(mesh);
-      player = { mesh, side: sp.side, id: sp.id, isLocal: false };
-      attachLabel(player, sp.id);
+      player = { mesh, side: sp.side, id: pid, isLocal: false };
+      attachLabel(player, pid);
       const portraitPath = playerPortraits[sp.side];
       if (portraitPath) {
         const tex = loadPortraitTexture(portraitPath);
@@ -911,12 +988,13 @@ function syncNetPlayers(snapshotPlayers) {
       }
       players.push(player);
     }
-    player.isLocal = sp.id === net.id;
+    player.isLocal = pid === net.id;
     player.side = sp.side;
     player.mesh.rotation.y = sideYaw[player.side] ?? 0;
-    attachLabel(player, player.isLocal ? `You (${player.side})` : `${player.id}`);
-    player.mesh.position.lerp(new THREE.Vector3(sp.x, 0.5, sp.z), 0.35);
-    alive.add(sp.id);
+    const displayName = net.players.get(pid)?.username || pid;
+    attachLabel(player, player.isLocal ? `You (${player.side})` : displayName);
+    player.mesh.position.lerp(new THREE.Vector3(pos.x, 0.5, pos.z), 0.35);
+    alive.add(pid);
   });
   const toRemove = players.filter((p) => p.id && !alive.has(p.id));
   toRemove.forEach((p) => scene.remove(p.mesh));
@@ -926,16 +1004,18 @@ function syncNetPlayers(snapshotPlayers) {
   }
 }
 
-function applyNetState(dt) {
+function applyNetState() {
   if (!net.snapshot) return;
-  const { ball, players: plist } = net.snapshot;
+  const snap = net.snapshot.payload || net.snapshot;
+  const { ball, players: plist } = snap;
   syncNetPlayers(plist || []);
   if (ball) {
     if (typeof ball.r === 'number' && ball.r > 0.01) {
       ballState.radius = ball.r;
     }
-    ballMesh.position.x = THREE.MathUtils.lerp(ballMesh.position.x, ball.x, 0.4);
-    ballMesh.position.z = THREE.MathUtils.lerp(ballMesh.position.z, ball.z, 0.4);
+    const pos = ball.pos || ball;
+    ballMesh.position.x = THREE.MathUtils.lerp(ballMesh.position.x, pos.x, 0.4);
+    ballMesh.position.z = THREE.MathUtils.lerp(ballMesh.position.z, pos.z, 0.4);
     ballMesh.position.y = ballState.radius;
     shadowMesh.position.x = ballMesh.position.x;
     shadowMesh.position.z = ballMesh.position.z;
@@ -944,11 +1024,15 @@ function applyNetState(dt) {
 
 function sendNetInput() {
   if (!net.enabled || !net.connected || !net.ws || net.ws.readyState !== WebSocket.OPEN) return;
-  const payload = { type: 'input', input: { forward: input.forward, back: input.back, left: input.left, right: input.right } };
+  if (net.matchState && net.matchState !== 'IN_PROGRESS' && net.matchState !== 'READY') return;
+  const now = performance.now();
+  if (now - net.lastInputSentAt < 33) return;
+  const payload = { type: 'INPUT', payload: { forward: input.forward, back: input.back, left: input.left, right: input.right } };
   const serialized = JSON.stringify(payload);
   if (serialized !== net.lastInput) {
     net.ws.send(serialized);
     net.lastInput = serialized;
+    net.lastInputSentAt = now;
   }
 }
 
@@ -959,15 +1043,26 @@ function updateHud() {
     netEl.textContent = 'Mode: offline demo (local physics + bots)';
   } else if (net.connected) {
     const ping = net.latencyMs != null ? `, ping ~${net.latencyMs.toFixed(0)}ms` : '';
-    netEl.textContent = `Mode: online WS (${net.wsUrl}) — player ${net.id ?? '?'} side ${net.side ?? '?'}${ping}`;
+    netEl.textContent = `Online (${net.wsUrl}) — player ${net.id ?? '?'} side ${net.side ?? '?'} — state ${net.matchState}${ping}`;
   } else {
-    netEl.textContent = `Mode: online WS connecting to ${net.wsUrl || ''}`;
+    const err = net.error?.code ? ` error: ${net.error.code}` : '';
+    netEl.textContent = `Connecting to ${net.wsUrl || ''}${err}`;
   }
 }
 
 function updatePlayersList() {
   const listEl = document.getElementById('players-list');
   if (!listEl) return;
+  if (net.enabled && net.players.size) {
+    listEl.innerHTML = [...net.players.values()]
+      .map((p) => {
+        const name = p.playerId === net.id ? `${p.username || p.playerId} (you)` : (p.username || p.playerId);
+        const status = p.connected ? p.side : `${p.side} (dc)`;
+        return `<div class="player-row"><span>${name}</span><span>${status}</span></div>`;
+      })
+      .join('');
+    return;
+  }
   if (!players.length) {
     listEl.innerHTML = '<div class="player-row"><span>No players</span><span></span></div>';
     return;
@@ -1008,7 +1103,7 @@ function collideBallWithWalls() {
   }
 
   if (hit) {
-    ballState.velocity.multiplyScalar(0.995);
+    ballState.velocity.multiplyScalar(PHYSICS.damping);
     playSfx('hit_wall', 0.4);
   }
 }
@@ -1037,8 +1132,20 @@ function collideBallWithPlayer(player) {
 
   const punch = player.isLocal ? 1.2 : 1.05;
   ballState.velocity.multiplyScalar(punch);
-  ballState.velocity.clampLength(2.5, 11);
+  ballState.velocity.clampLength(PHYSICS.minSpeed, PHYSICS.maxSpeed);
   playSfx('hit_player', 0.6);
+}
+
+function applyMagnets(dt) {
+  MAGNETS.filter((m) => m.enabled).forEach((mag) => {
+    const dx = mag.center.x - ballMesh.position.x;
+    const dz = mag.center.y - ballMesh.position.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 1e-3 || dist > mag.radius) return;
+    const force = (1 - dist / mag.radius) * mag.strength;
+    ballState.velocity.x += (dx / dist) * force * dt;
+    ballState.velocity.y += (dz / dist) * force * dt;
+  });
 }
 
 function updateBall(dt) {
@@ -1046,10 +1153,12 @@ function updateBall(dt) {
   ballMesh.position.z += ballState.velocity.y * dt;
   ballMesh.position.y = ballState.radius;
 
+  applyMagnets(dt);
   collideBallWithWalls();
   players.forEach(collideBallWithPlayer);
 
-  ballState.velocity.multiplyScalar(0.999);
+  ballState.velocity.multiplyScalar(PHYSICS.damping);
+  ballState.velocity.clampLength(PHYSICS.minSpeed, PHYSICS.maxSpeed);
   shadowMesh.position.x = ballMesh.position.x;
   shadowMesh.position.z = ballMesh.position.z;
 }
@@ -1064,7 +1173,7 @@ function animate() {
   if (!input.paused) {
     if (net.enabled && net.connected) {
       sendNetInput();
-      applyNetState(dt);
+      applyNetState();
     } else {
       moveLocalPlayer(dt);
       moveBots(dt);

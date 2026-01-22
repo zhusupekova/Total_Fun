@@ -5,12 +5,12 @@ Total_Fun — MVP 3D PvP игра для Telegram Mini Apps: статичная 
 ## Статус репозитория
 - Stage 1: офлайн-стенд на Three.js для сцены и кастомной плоской физики мяча (текущая точка входа).
 - Stage 3: черновик WebSocket-сервера (Node.js + `ws`) и протокол клиента, чтобы перейти к real-time на 4 игроков.
-- Материалы: `assets/` для GLB (плейсхолдеры), `docs/references/` для визуальных рефов, `docs/brief/` для ТЗ (docx), PDF-версия ТЗ в корне.
+- Материалы: `public/assets/` для GLB (плейсхолдеры), `docs/references/` для визуальных рефов, `docs/brief/` для ТЗ (docx), PDF-версия ТЗ в корне.
 
 ## Структура
-- `index.html`, `src/` — стенд Stage 1 (сцена, физика, HUD).
+- `pages/game.jsx` — клиент Next.js (SSR выключен) для запуска сцены; `src/main.js` — сцена/физика/HUD (используется как клиентский модуль).
 - `server/` — WS-сервер (Node.js + `ws`).
-- `assets/` — ожидаемые GLB (`arena.glb`, `player.glb`, `ball.glb`, варианты персонажей); подхватываются автоматически.
+- `public/assets/` — ожидаемые GLB (`arena.glb`, `player.glb`, `ball.glb`, варианты персонажей); подхватываются автоматически, доступны по пути `/assets/...`.
 - `docs/brief/` — файлы ТЗ (docx); PDF-версия (`ТЕХНИЧЕСКОЕ ЗАДАНИЕ.pdf`) лежит в корне.
 - `docs/references/` — визуальные референсы (арена, персонажи, UI, примеры).
 - `docs/characters.md` — требования к экспортам GLB (pivot, масштаб, ориентация) и список персонажей.
@@ -24,9 +24,9 @@ Total_Fun — MVP 3D PvP игра для Telegram Mini Apps: статичная 
 ## Запуск
 
 ### Stage 1 (scene + physics sandbox, офлайн)
-Минимальный стенд на Three.js для отладки арены и мяча без сети.
+Минимальный стенд на Three.js для отладки арены и мяча без сети. Клиент на Next.js, страница `/game`.
 
-- `index.html` + `src/main.js` — статичная арена, 4 игрока (один локальный, три бота), мяч с кастомной 2D-физикой.
+- `pages/game.jsx` + `src/main.js` — статичная арена, 4 игрока (один локальный, три бота), мяч с кастомной 2D-физикой.
 - Управление: `W/S/A/D` — движение локального игрока по своей стороне; `Space` — пауза; `R` — сброс мяча; на мобайле — экранные стрелки. В сетевом режиме ввод идёт в WS.
 - Коллизии: отражение от стен, от игроков, ограничение скорости, лёгкое затухание; мяч не прыгает, есть blob-тень.
 - HUD: сетевой статус (пинг), панель вверху справа для Connect/Disconnect и список игроков.
@@ -34,15 +34,16 @@ Total_Fun — MVP 3D PvP игра для Telegram Mini Apps: статичная 
 Локальный запуск (пример со встроенным `http.server`):
 
 ```bash
-python3 -m http.server 8000
-# открыть http://localhost:8000/
+npm install
+npm run dev
+# открыть http://localhost:3000/game
 ```
 
 ### Stage 3 (WS сервер, server-authoritative)
 Черновик real-time сервера для 4 игроков: симуляция мяча/столкновений, рассылка снапшотов, приём ввода.
 
 - Код: `server/` (Node.js + `ws`, 60 FPS тик).
-- Протокол: см. `server/README.md` (`welcome`, `state`, `player_join/leave`, входной `input`, debug `reset_ball`).
+- Протокол: см. `server/README.md` (`HELLO`/`WELCOME`, `INPUT`, `SNAPSHOT`, `PING/PONG`, `ROOM_STATE`, ошибки `ROOM_FULL/BAD_HELLO/BAD_INPUT`).
 - Запуск:
 
 ```bash

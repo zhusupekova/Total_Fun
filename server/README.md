@@ -2,14 +2,12 @@
 
 - Server side for Total_Fun (4-player arena, Stage 3 draft).
 - Entry: `server.js` (Node + ws)
-- Tick: 60 FPS, runs ball physics and player motion.
-- Protocol:
-  - `welcome`: sent on connect `{ type: "welcome", id, side, arena }`
-  - `state`: broadcast each tick `{ type: "state", t, ball, players[] }`
-  - `player_join` / `player_leave`: presence events
-  - Client input: `{ type: "input", input: { forward, back, left, right } }`
-  - Reset ball (debug): `{ type: "reset_ball" }`
-- Sides assignment order: top → right → bottom → left.
+- Tick: 60 FPS physics, snapshots at 30 Hz, single room.
+- Protocol (uppercase):
+  - Client → Server: `HELLO { userId, username }`, `INPUT { forward, back, left, right }`, `PONG { pingId, ts }`, `DEBUG { cmd: "RESET_BALL" }`
+  - Server → Client: `WELCOME { playerId, side, roomId, tickRate, snapshotRate, matchState, arena }`, `ROOM_STATE { players[], matchState }`, `SNAPSHOT { t, payload: { ball { pos, vel, r }, players[] } }`, `PING { pingId, ts }`, `ERROR { code, message }`, `MATCH_EVENT { event: MATCH_READY|MATCH_IN_PROGRESS|MATCH_WAITING }`
+- Sides assignment order: top → right → bottom → left, max 4 players, 5-й получает `ERROR: ROOM_FULL`.
+- Match flow: WAITING → READY (2s) → IN_PROGRESS; при потере игроков возвращается в WAITING, ball reset.
 
 ## Run locally
 ```bash
