@@ -4,7 +4,7 @@ import { clone as cloneSkinned } from 'https://unpkg.com/three@0.161.0/examples/
 
 const app = document.getElementById('app');
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0d16);
+scene.background = new THREE.Color(0x0d111c);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
@@ -20,8 +20,8 @@ camera.lookAt(0, 0, 0);
 const hemi = new THREE.HemisphereLight(0xa0d8ff, 0x1a1f2a, 0.8);
 scene.add(hemi);
 
-const dir = new THREE.DirectionalLight(0xffffff, 0.9);
-dir.position.set(6, 10, 4);
+const dir = new THREE.DirectionalLight(0xffffff, 1.1);
+dir.position.set(8, 14, 8);
 dir.castShadow = true;
 dir.shadow.camera.left = -16;
 dir.shadow.camera.right = 16;
@@ -78,7 +78,23 @@ function createArena() {
   const group = new THREE.Group();
 
   const floorGeom = new THREE.PlaneGeometry(ARENA.width, ARENA.height);
-  const floorMat = new THREE.MeshStandardMaterial({ color: 0x242b3d, roughness: 0.9, metalness: 0.05 });
+  const floorCanvas = document.createElement('canvas');
+  floorCanvas.width = 512;
+  floorCanvas.height = 512;
+  const fctx = floorCanvas.getContext('2d');
+  const grad = fctx.createRadialGradient(256, 256, 60, 256, 256, 260);
+  grad.addColorStop(0, '#2b3648');
+  grad.addColorStop(1, '#212a39');
+  fctx.fillStyle = grad;
+  fctx.fillRect(0, 0, 512, 512);
+  fctx.fillStyle = 'rgba(255,255,255,0.03)';
+  for (let i = 0; i < 40; i++) {
+    fctx.fillRect(Math.random() * 512, Math.random() * 512, 8, 8);
+  }
+  const floorTex = new THREE.CanvasTexture(floorCanvas);
+  floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
+  floorTex.repeat.set(2, 2);
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: floorTex, roughness: 0.9, metalness: 0.05 });
   const floor = new THREE.Mesh(floorGeom, floorMat);
   floor.receiveShadow = true;
   floor.rotation.x = -Math.PI / 2;
@@ -87,9 +103,11 @@ function createArena() {
   const markings = new THREE.GridHelper(ARENA.width, ARENA.width / 1, 0x3b4b6b, 0x2c3b55);
   markings.position.y = 0.01;
   markings.rotation.y = Math.PI / 2;
+  markings.material.opacity = 0.35;
+  markings.material.transparent = true;
   group.add(markings);
 
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0x303f58, metalness: 0.15, roughness: 0.6 });
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x3a4b69, metalness: 0.25, roughness: 0.45, emissive: 0x0d6cf5, emissiveIntensity: 0.08 });
   const wallThickness = 0.4;
   const wallHeight = ARENA.wallHeight;
   const edgeGeomH = new THREE.BoxGeometry(ARENA.width + wallThickness * 2, wallHeight, wallThickness);
