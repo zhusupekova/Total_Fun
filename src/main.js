@@ -46,6 +46,9 @@ const playerPrefabs = new Map();
 let playerFallbackPrefab = null;
 const params = new URLSearchParams(window.location.search);
 const wsUrl = params.get('ws');
+const audioContext = typeof AudioContext !== 'undefined' ? new AudioContext() : null;
+const sfxBuffers = new Map();
+let audioUnlocked = false;
 const net = {
   enabled: !!wsUrl,
   wsUrl: wsUrl || 'ws://localhost:7071',
@@ -331,6 +334,40 @@ function colorForSide(side) {
   return idx >= 0 ? `#${playerMatColors[idx].toString(16).padStart(6, '0')}` : '#ffffff';
 }
 
+async function loadSfx(name, url) {
+  if (!audioContext || !url) return null;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const array = await res.arrayBuffer();
+    const buffer = await audioContext.decodeAudioData(array);
+    sfxBuffers.set(name, buffer);
+    return buffer;
+  } catch (e) {
+    console.warn('SFX load failed', name, e);
+    return null;
+  }
+}
+
+function playSfx(name, volume = 0.8) {
+  if (!audioContext || !audioUnlocked) return;
+  const buffer = sfxBuffers.get(name);
+  if (!buffer) return;
+  const src = audioContext.createBufferSource();
+  const gain = audioContext.createGain();
+  gain.gain.value = volume;
+  src.buffer = buffer;
+  src.connect(gain).connect(audioContext.destination);
+  src.start();
+}
+
+function unlockAudio() {
+  if (audioUnlocked || !audioContext) return;
+  audioContext.resume().then(() => {
+    audioUnlocked = true;
+  });
+}
+
 function attachLabel(player, text) {
   if (player.label) {
     player.mesh.remove(player.label);
@@ -517,6 +554,7 @@ const ballState = {
 const input = { forward: false, back: false, left: false, right: false, paused: false };
 
 window.addEventListener('keydown', (e) => {
+  unlockAudio();
   if (e.code === 'KeyW') input.forward = true;
   if (e.code === 'KeyS') input.back = true;
   if (e.code === 'KeyA') input.left = true;
@@ -579,6 +617,9 @@ function bindTouchControls() {
 }
 
 function bindNetControls() {
+  const unlock = () => unlockAudio();
+  window.addEventListener('pointerdown', unlock, { once: true });
+  window.addEventListener('touchstart', unlock, { once: true });
   const input = document.getElementById('ws-url');
   const btnConnect = document.getElementById('btn-connect');
   const btnDisconnect = document.getElementById('btn-disconnect');
@@ -725,6 +766,12 @@ function applyPrefabsToExistingPlayers() {
 async function hydrateWithGltf() {
   const arenaPromise = loadOptionalGltf(ASSETS.arena);
   const ballPromise = loadOptionalGltf(ASSETS.ball);
+  const sfxPromise = Promise.all([
+    loadSfx('hit_player', 'assets/sfx/hit_player.ogg'),
+    loadSfx('hit_wall', 'assets/sfx/hit_wall.ogg'),
+    loadSfx('goal', 'assets/sfx/goal.ogg'),
+    loadSfx('magnet', 'assets/sfx/magnet.ogg'),
+  ]);
   const fallbackPromise = ASSETS.playerFallback ? loadOptionalGltf(ASSETS.playerFallback) : Promise.resolve(null);
   const playerPromises = Object.entries(ASSETS.players || {}).map(async ([side, url]) => {
     const gltf = await loadOptionalGltf(url);
@@ -778,6 +825,7 @@ async function hydrateWithGltf() {
     scene.add(ballMesh);
     setBallRadiusFromObject(model);
   }
+  await sfxPromise;
 }
 
 hydrateWithGltf();
@@ -952,6 +1000,7 @@ function collideBallWithWalls() {
 
   if (hit) {
     ballState.velocity.multiplyScalar(0.995);
+    playSfx('hit_wall', 0.4);
   }
 }
 
@@ -980,6 +1029,7 @@ function collideBallWithPlayer(player) {
   const punch = player.isLocal ? 1.2 : 1.05;
   ballState.velocity.multiplyScalar(punch);
   ballState.velocity.clampLength(2.5, 11);
+  playSfx('hit_player', 0.6);
 }
 
 function updateBall(dt) {
