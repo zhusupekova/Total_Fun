@@ -1,6 +1,6 @@
-# Game_MiniApp
+# Total_Fun
 
-MVP 3D PvP игра для Telegram Mini Apps: статичная арена на 4 игроков, сервер-авторитативная физика мяча, mobile-first WebView.
+Total_Fun — MVP 3D PvP игра для Telegram Mini Apps: статичная арена на 4 игроков, сервер-авторитативная физика мяча, mobile-first WebView.
 
 ## Статус репозитория
 - Stage 1: офлайн-стенд на Three.js для сцены и кастомной плоской физики мяча (текущая точка входа).

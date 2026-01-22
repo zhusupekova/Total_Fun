@@ -1,5 +1,6 @@
-# Real-time server (WS, server-authoritative)
+# Total_Fun real-time server (WS, server-authoritative)
 
+- Server side for Total_Fun (4-player arena, Stage 3 draft).
 - Entry: `server.js` (Node + ws)
 - Tick: 60 FPS, runs ball physics and player motion.
 - Protocol:
