@@ -22,6 +22,7 @@ function GameView() {
         <div className="row">Bots: three AI paddles move and reflect the ball</div>
         <div className="row">Stage 1: arena + custom light physics (optional WS)</div>
         <div className="row" id="net-status" />
+        <div className="row" id="match-status" />
         <button id="audio-toggle">Sound: on</button>
       </div>
       <div id="net-panel">

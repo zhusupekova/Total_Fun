@@ -119,6 +119,27 @@ function resolveIdentity() {
 
 net.identity = resolveIdentity();
 
+const magnetVisuals = [];
+function createMagnetMarkers() {
+  magnetVisuals.forEach((m) => scene.remove(m));
+  magnetVisuals.length = 0;
+  MAGNETS.filter((m) => m.enabled).forEach((mag) => {
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(mag.radius * 0.65, mag.radius, 32),
+      new THREE.MeshBasicMaterial({ color: 0x4ee0ff, opacity: 0.2, transparent: true })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(mag.center.x, 0.02, mag.center.y);
+    const pillar = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.05, 0.05, 0.5, 10),
+      new THREE.MeshBasicMaterial({ color: 0x4ee0ff, opacity: 0.4, transparent: true })
+    );
+    pillar.position.set(mag.center.x, 0.25, mag.center.y);
+    scene.add(ring, pillar);
+    magnetVisuals.push(ring, pillar);
+  });
+}
+
 function enableShadows(object) {
   object.traverse((child) => {
     if (child.isMesh) {
@@ -529,6 +550,7 @@ function applyPrefabsToExistingPlayers() {
 }
 
 initOfflinePlayers();
+createMagnetMarkers();
 
 function playerDefaultPosition(side) {
   const zone = SIDE_ZONES[side];
@@ -1038,15 +1060,19 @@ function sendNetInput() {
 
 function updateHud() {
   const netEl = document.getElementById('net-status');
+  const matchEl = document.getElementById('match-status');
   if (!netEl) return;
   if (!net.enabled) {
     netEl.textContent = 'Mode: offline demo (local physics + bots)';
+    if (matchEl) matchEl.textContent = 'Match: OFFLINE';
   } else if (net.connected) {
     const ping = net.latencyMs != null ? `, ping ~${net.latencyMs.toFixed(0)}ms` : '';
     netEl.textContent = `Online (${net.wsUrl}) — player ${net.id ?? '?'} side ${net.side ?? '?'} — state ${net.matchState}${ping}`;
+    if (matchEl) matchEl.textContent = `Match state: ${net.matchState || 'unknown'}`;
   } else {
     const err = net.error?.code ? ` error: ${net.error.code}` : '';
     netEl.textContent = `Connecting to ${net.wsUrl || ''}${err}`;
+    if (matchEl) matchEl.textContent = `Match state: ${net.matchState || 'connecting'}`;
   }
 }
 

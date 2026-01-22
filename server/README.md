@@ -8,6 +8,7 @@
   - Server → Client: `WELCOME { playerId, side, roomId, tickRate, snapshotRate, matchState, arena }`, `ROOM_STATE { players[], matchState }`, `SNAPSHOT { t, payload: { ball { pos, vel, r }, players[] } }`, `PING { pingId, ts }`, `ERROR { code, message }`, `MATCH_EVENT { event: MATCH_READY|MATCH_IN_PROGRESS|MATCH_WAITING }`
 - Sides assignment order: top → right → bottom → left, max 4 players, 5-й получает `ERROR: ROOM_FULL`.
 - Match flow: WAITING → READY (2s) → IN_PROGRESS; при потере игроков возвращается в WAITING, ball reset.
+- Магниты: 4 зоны притяжения в углах (радиус 2, strength 4), можно отключить переменной `MAGNETS=off`.
 
 ## Run locally
 ```bash

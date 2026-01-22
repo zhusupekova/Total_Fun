@@ -31,7 +31,7 @@ Total_Fun — MVP 3D PvP игра для Telegram Mini Apps: статичная 
 - Коллизии: отражение от стен, от игроков, ограничение скорости, лёгкое затухание; мяч не прыгает, есть blob-тень.
 - HUD: сетевой статус (пинг), панель вверху справа для Connect/Disconnect и список игроков.
 
-Локальный запуск (пример со встроенным `http.server`):
+Локальный запуск (Next.js dev):
 
 ```bash
 npm install
@@ -49,7 +49,7 @@ npm run dev
 ```bash
 cd server
 npm install
-npm start # PORT=7071 по умолчанию
+npm start # PORT=7071 по умолчанию, MAGNETS=off отключит магнитные зоны
 ```
 
 - Клиент Stage 1 может подключиться через query `?ws=ws://localhost:7071`; без параметра остаётся офлайн-демо.

@@ -32,6 +32,7 @@ const SIDE_ZONES = {
   right: { x: [4, 8], z: [-5, 5] },
 };
 
+const MAGNETS_ENABLED = process.env.MAGNETS !== 'off';
 const MAGNETS = [
   { id: 'nw', center: { x: -6.5, z: -3.5 }, radius: 2, strength: 4, type: 'pull', enabled: true },
   { id: 'ne', center: { x: 6.5, z: -3.5 }, radius: 2, strength: 4, type: 'pull', enabled: true },
@@ -98,6 +99,7 @@ function kickOffBall() {
 }
 
 function applyMagnets(dt) {
+  if (!MAGNETS_ENABLED) return;
   MAGNETS.filter((m) => m.enabled).forEach((mag) => {
     const dx = mag.center.x - state.ball.x;
     const dz = mag.center.z - state.ball.z;

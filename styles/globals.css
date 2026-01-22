@@ -1,4 +1,4 @@
-html, body {
+html, body, #__next {
   margin: 0;
   padding: 0;
   width: 100%;
@@ -26,8 +26,8 @@ html, body {
 
 #hud {
   position: absolute;
-  top: 12px;
-  left: 12px;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  left: calc(12px + env(safe-area-inset-left, 0px));
   color: #e6f2ff;
   background: rgba(0, 0, 0, 0.4);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -56,8 +56,8 @@ html, body {
 
 #net-panel {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  right: calc(12px + env(safe-area-inset-right, 0px));
   width: 260px;
   padding: 10px;
   background: rgba(0, 0, 0, 0.45);
@@ -115,8 +115,8 @@ html, body {
 
 #touch-controls {
   position: absolute;
-  bottom: 16px;
-  left: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  left: calc(16px + env(safe-area-inset-left, 0px));
   display: grid;
   grid-template-columns: 60px 60px 60px;
   grid-template-rows: 60px 60px 60px;
