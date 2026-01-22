@@ -41,7 +41,7 @@ const params = new URLSearchParams(window.location.search);
 const wsUrl = params.get('ws');
 const net = {
   enabled: !!wsUrl,
-  wsUrl,
+  wsUrl: wsUrl || 'ws://localhost:7071',
   ws: null,
   connected: false,
   id: null,
@@ -51,6 +51,7 @@ const net = {
   reconnectDelay: 1000,
   reconnectTimer: null,
   latencyMs: null,
+  shouldReconnect: !!wsUrl,
 };
 const gltfLoader = new GLTFLoader();
 
@@ -195,7 +196,23 @@ function attachLabel(player, text) {
 const players = [];
 const sides = ['top', 'right', 'bottom', 'left'];
 
-if (!net.enabled) {
+function disposePlayer(player) {
+  if (!player) return;
+  if (player.label) {
+    if (player.label.material.map) player.label.material.map.dispose();
+    player.label.material.dispose();
+    player.mesh.remove(player.label);
+  }
+  scene.remove(player.mesh);
+}
+
+function clearPlayers() {
+  players.forEach(disposePlayer);
+  players.length = 0;
+}
+
+function initOfflinePlayers() {
+  clearPlayers();
   sides.forEach((side, idx) => {
     const mesh = createPlayer(idx, side);
     const pos = playerDefaultPosition(side);
@@ -205,6 +222,10 @@ if (!net.enabled) {
     attachLabel(player, player.isLocal ? 'You' : `Bot ${idx}`);
     players.push(player);
   });
+}
+
+if (!net.enabled) {
+  initOfflinePlayers();
 }
 
 function playerDefaultPosition(side) {
@@ -310,6 +331,24 @@ function bindTouchControls() {
   });
 }
 
+function bindNetControls() {
+  const input = document.getElementById('ws-url');
+  const btnConnect = document.getElementById('btn-connect');
+  const btnDisconnect = document.getElementById('btn-disconnect');
+  if (input && net.wsUrl) input.value = net.wsUrl;
+  if (btnConnect) {
+    btnConnect.addEventListener('click', () => {
+      const url = input?.value?.trim() || net.wsUrl;
+      startNet(url);
+    });
+  }
+  if (btnDisconnect) {
+    btnDisconnect.addEventListener('click', () => {
+      stopNet();
+    });
+  }
+}
+
 function resetBall() {
   if (net.enabled && net.connected && net.ws && net.ws.readyState === WebSocket.OPEN) {
     net.ws.send(JSON.stringify({ type: 'reset_ball' }));
@@ -326,7 +365,7 @@ function resetBall() {
 resetBall();
 
 function connectWebSocket(url) {
-  if (!url) return;
+  if (!url || !net.shouldReconnect) return;
   if (net.ws) {
     net.ws.close();
     net.ws = null;
@@ -367,10 +406,12 @@ function connectWebSocket(url) {
   net.ws.addEventListener('close', () => {
     net.connected = false;
     console.warn('[net] disconnected');
-    net.reconnectTimer = setTimeout(() => {
-      net.reconnectDelay = Math.min(net.reconnectDelay * 1.6, 8000);
-      connectWebSocket(net.wsUrl);
-    }, net.reconnectDelay);
+    if (net.shouldReconnect) {
+      net.reconnectTimer = setTimeout(() => {
+        net.reconnectDelay = Math.min(net.reconnectDelay * 1.6, 8000);
+        connectWebSocket(net.wsUrl);
+      }, net.reconnectDelay);
+    }
   });
   net.ws.addEventListener('error', (e) => {
     console.warn('[net] error', e);
@@ -380,6 +421,38 @@ function connectWebSocket(url) {
 if (net.enabled) {
   players.forEach((p) => scene.remove(p.mesh));
   players.length = 0;
+  net.shouldReconnect = true;
+  connectWebSocket(net.wsUrl);
+}
+
+function stopNet() {
+  net.shouldReconnect = false;
+  net.enabled = false;
+  net.connected = false;
+  net.id = null;
+  net.side = null;
+  net.snapshot = null;
+  net.latencyMs = null;
+  if (net.reconnectTimer) {
+    clearTimeout(net.reconnectTimer);
+    net.reconnectTimer = null;
+  }
+  if (net.ws) {
+    net.ws.close();
+    net.ws = null;
+  }
+  clearPlayers();
+  initOfflinePlayers();
+  resetBall();
+}
+
+function startNet(url) {
+  if (url) net.wsUrl = url;
+  net.shouldReconnect = true;
+  net.enabled = true;
+  net.snapshot = null;
+  net.latencyMs = null;
+  clearPlayers();
   connectWebSocket(net.wsUrl);
 }
 
@@ -543,6 +616,22 @@ function updateHud() {
   }
 }
 
+function updatePlayersList() {
+  const listEl = document.getElementById('players-list');
+  if (!listEl) return;
+  if (!players.length) {
+    listEl.innerHTML = '<div class="player-row"><span>No players</span><span></span></div>';
+    return;
+  }
+  listEl.innerHTML = players
+    .map((p) => {
+      const name = p.isLocal ? `${p.id || 'you'} (you)` : p.id || 'player';
+      const side = p.side || '-';
+      return `<div class="player-row"><span>${name}</span><span>${side}</span></div>`;
+    })
+    .join('');
+}
+
 function collideBallWithWalls() {
   const halfW = ARENA.width / 2;
   const halfH = ARENA.height / 2;
@@ -633,12 +722,14 @@ function animate() {
   }
 
   updateHud();
+  updatePlayersList();
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
 }
 
 animate();
 bindTouchControls();
+bindNetControls();
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;

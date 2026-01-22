@@ -37,6 +37,58 @@
     #hud code { color: #ffd66b; }
     #hud .row { margin-bottom: 4px; }
     #hud .row:last-child { margin-bottom: 0; }
+    #net-panel {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      width: 260px;
+      padding: 10px;
+      background: rgba(0, 0, 0, 0.45);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      color: #e6f2ff;
+      font-size: 12px;
+      line-height: 1.4;
+      backdrop-filter: blur(4px);
+      display: grid;
+      gap: 6px;
+    }
+    #net-panel input {
+      width: 100%;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.08);
+      color: #e6f2ff;
+    }
+    #net-panel button {
+      padding: 6px 8px;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 8px;
+      background: rgba(154, 232, 255, 0.2);
+      color: #0b1220;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #net-panel button.secondary {
+      background: rgba(255, 255, 255, 0.1);
+      color: #e6f2ff;
+    }
+    #players-list {
+      max-height: 120px;
+      overflow-y: auto;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      padding: 6px;
+      background: rgba(0,0,0,0.25);
+    }
+    #players-list .player-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+      font-size: 12px;
+    }
+    #players-list .player-row:last-child { margin-bottom: 0; }
     #touch-controls {
       position: absolute;
       bottom: 16px;
@@ -73,8 +125,17 @@
     <div class="row"><b>Controls:</b> Player 1 — <code>W/S</code> (forward/back), <code>A/D</code> (strafe)</div>
     <div class="row">Toggle pause — <code>Space</code>, Reset ball — <code>R</code></div>
     <div class="row">Bots: three AI paddles move and reflect the ball</div>
-    <div class="row">Stage 1: arena + custom light physics (no networking yet)</div>
+    <div class="row">Stage 1: arena + custom light physics (optional WS)</div>
     <div class="row" id="net-status"></div>
+  </div>
+  <div id="net-panel">
+    <div>WebSocket server</div>
+    <input id="ws-url" type="text" value="ws://localhost:7071" />
+    <div style="display:flex; gap:6px;">
+      <button id="btn-connect">Connect</button>
+      <button id="btn-disconnect" class="secondary">Disconnect</button>
+    </div>
+    <div id="players-list"></div>
   </div>
   <div id="touch-controls">
     <div class="tc-empty"></div>
