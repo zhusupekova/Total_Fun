@@ -153,6 +153,45 @@ function createPlayer(colorIndex, side) {
   return mesh;
 }
 
+function makeLabel(text, color = '#ffffff') {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = color;
+  ctx.font = '28px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
+  const sprite = new THREE.Sprite(spriteMat);
+  sprite.scale.set(2.5, 0.7, 1);
+  sprite.position.set(0, 1.8, 0);
+  sprite.userData.texture = texture;
+  return sprite;
+}
+
+function colorForSide(side) {
+  const idx = sides.indexOf(side);
+  return idx >= 0 ? `#${playerMatColors[idx].toString(16).padStart(6, '0')}` : '#ffffff';
+}
+
+function attachLabel(player, text) {
+  if (player.label) {
+    player.mesh.remove(player.label);
+    if (player.label.material.map) player.label.material.map.dispose();
+    player.label.material.dispose();
+  }
+  const label = makeLabel(text, colorForSide(player.side));
+  player.mesh.add(label);
+  player.label = label;
+}
+
 const players = [];
 const sides = ['top', 'right', 'bottom', 'left'];
 
@@ -162,7 +201,9 @@ if (!net.enabled) {
     const pos = playerDefaultPosition(side);
     mesh.position.set(pos.x, 0.5, pos.z);
     scene.add(mesh);
-    players.push({ mesh, side, isLocal: idx === 0 });
+    const player = { mesh, side, isLocal: idx === 0, id: idx === 0 ? 'local' : `bot-${idx}` };
+    attachLabel(player, player.isLocal ? 'You' : `Bot ${idx}`);
+    players.push(player);
   });
 }
 
@@ -445,11 +486,13 @@ function syncNetPlayers(snapshotPlayers) {
       mesh.position.set(sp.x, 0.5, sp.z);
       scene.add(mesh);
       player = { mesh, side: sp.side, id: sp.id, isLocal: false };
+      attachLabel(player, sp.id);
       players.push(player);
     }
     player.isLocal = sp.id === net.id;
     player.side = sp.side;
     player.mesh.rotation.y = sideYaw[player.side] ?? 0;
+    attachLabel(player, player.isLocal ? `You (${player.side})` : `${player.id}`);
     player.mesh.position.lerp(new THREE.Vector3(sp.x, 0.5, sp.z), 0.35);
     alive.add(sp.id);
   });
