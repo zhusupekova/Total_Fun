@@ -163,6 +163,42 @@ function createArena() {
     group.add(wall);
   });
 
+  // corner pods and mid structures (simplified)
+  const podGeom = new THREE.CylinderGeometry(1.2, 1.2, 0.7, 22);
+  const podMat = new THREE.MeshStandardMaterial({ color: 0x6ba8d9, metalness: 0.25, roughness: 0.5 });
+  const podPositions = [
+    [-ARENA.width / 2 - 2.2, -ARENA.height / 2 - 2.2],
+    [ARENA.width / 2 + 2.2, -ARENA.height / 2 - 2.2],
+    [-ARENA.width / 2 - 2.2, ARENA.height / 2 + 2.2],
+    [ARENA.width / 2 + 2.2, ARENA.height / 2 + 2.2],
+  ];
+  podPositions.forEach(([x, z]) => {
+    const pod = new THREE.Mesh(podGeom, podMat);
+    pod.position.set(x, 0.35, z);
+    pod.castShadow = true;
+    pod.receiveShadow = true;
+    group.add(pod);
+  });
+
+  // triangular floor markers
+  const triGeom = new THREE.ConeGeometry(0.7, 0.05, 3);
+  const triMat = new THREE.MeshStandardMaterial({ color: 0x2f3c4f, metalness: 0.1, roughness: 0.6 });
+  const triOffsets = [
+    [-ARENA.width * 0.25, -ARENA.height * 0.15],
+    [ARENA.width * 0.25, ARENA.height * 0.15],
+    [ARENA.width * 0.1, -ARENA.height * 0.32],
+    [-ARENA.width * 0.1, ARENA.height * 0.32],
+  ];
+  triOffsets.forEach(([x, z], idx) => {
+    const tri = new THREE.Mesh(triGeom, triMat);
+    tri.rotation.x = Math.PI / 2;
+    tri.rotation.z = idx % 2 === 0 ? 0 : Math.PI;
+    tri.position.set(x, 0.03, z);
+    tri.castShadow = false;
+    tri.receiveShadow = false;
+    group.add(tri);
+  });
+
   scene.add(group);
   return group;
 }
