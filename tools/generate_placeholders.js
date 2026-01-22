@@ -55,7 +55,10 @@ function exportScene(scene, outPath) {
           resolve();
         }
       },
-      (err) => reject(err),
+      (err) => {
+        console.error('Export error for', outPath, err);
+        reject(err);
+      },
       { binary: true }
     );
   });
