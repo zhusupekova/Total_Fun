@@ -393,9 +393,9 @@ function makeBallTexture() {
   canvas.height = 256;
   const ctx = canvas.getContext('2d');
   const grad = ctx.createRadialGradient(120, 100, 20, 130, 130, 120);
-  grad.addColorStop(0, '#c9d8f2');
-  grad.addColorStop(0.5, '#9fb3d8');
-  grad.addColorStop(1, '#7a8caf');
+  grad.addColorStop(0, '#d9e5ff');
+  grad.addColorStop(0.45, '#9bb6e8');
+  grad.addColorStop(1, '#6f86b5');
   ctx.fillStyle = grad;
   ctx.beginPath();
   ctx.arc(128, 128, 120, 0, Math.PI * 2);
@@ -410,15 +410,23 @@ function makeBallTexture() {
   return tex;
 }
 
-const ballGeom = new THREE.SphereGeometry(0.45, 32, 20);
-const ballMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: makeBallTexture(), roughness: 0.2, metalness: 0.05, envMapIntensity: 0.2 });
+const ballGeom = new THREE.SphereGeometry(0.5, 36, 22);
+const ballMat = new THREE.MeshStandardMaterial({
+  color: 0x8fb6f2,
+  map: makeBallTexture(),
+  roughness: 0.28,
+  metalness: 0.12,
+  emissive: 0x3c6dd8,
+  emissiveIntensity: 0.2,
+  envMapIntensity: 0.25,
+});
 let ballMesh = new THREE.Mesh(ballGeom, ballMat);
 ballMesh.castShadow = true;
-ballMesh.position.y = 0.45;
+ballMesh.position.y = 0.5;
 scene.add(ballMesh);
 
-const shadowGeom = new THREE.CircleGeometry(0.65, 24);
-const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, opacity: 0.25, transparent: true });
+const shadowGeom = new THREE.CircleGeometry(0.8, 28);
+const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, opacity: 0.35, transparent: true });
 const shadowMesh = new THREE.Mesh(shadowGeom, shadowMat);
 shadowMesh.rotation.x = -Math.PI / 2;
 shadowMesh.position.y = 0.001;
@@ -436,7 +444,7 @@ function setBallRadiusFromObject(object) {
 
 const ballState = {
   velocity: new THREE.Vector2(4, 2.8),
-  radius: 0.45,
+  radius: 0.5,
 };
 
 const input = { forward: false, back: false, left: false, right: false, paused: false };
