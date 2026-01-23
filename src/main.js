@@ -337,6 +337,7 @@ const playerColorBySide = {
   bottom: 0xffd74a, // duck yellow
   left: 0x6d87b3, // pigeon blue
 };
+const sideHex = (side) => `#${(playerColorBySide[side] ?? 0xffffff).toString(16).padStart(6, '0')}`;
 
 function createPlayer(colorIndex, side) {
   const prefab = prefabForSide(side);
@@ -1309,7 +1310,16 @@ function updateHud() {
     }
     if (matchBanner) {
       if (net.matchState === 'FINISHED') {
-        matchBanner.textContent = `Match finished${net.matchReason ? `: ${net.matchReason}` : ''}`;
+        const winSide = net.matchReason?.startsWith('WIN_') ? net.matchReason.slice(4).toLowerCase() : null;
+        if (winSide) {
+          matchBanner.textContent = `Winner: ${winSide}`;
+          matchBanner.style.borderColor = sideHex(winSide);
+          matchBanner.style.color = sideHex(winSide);
+        } else {
+          matchBanner.textContent = `Match finished${net.matchReason ? `: ${net.matchReason}` : ''}`;
+          matchBanner.style.borderColor = 'rgba(255,255,255,0.15)';
+          matchBanner.style.color = '#e6f2ff';
+        }
         matchBanner.style.display = 'block';
       } else if (net.matchState === 'WAITING') {
         const goal = (window.SERVER_CONFIG?.scoreToWin) ? ` | first to ${window.SERVER_CONFIG.scoreToWin}` : '';
