@@ -1253,12 +1253,15 @@ function updateHud() {
   const matchEl = document.getElementById('match-status');
   const errEl = document.getElementById('error-banner');
   const cta = document.getElementById('cta-retry');
+  const matchBanner = document.getElementById('match-banner');
   if (!netEl) return;
+  const hideBanner = () => { if (matchBanner) matchBanner.style.display = 'none'; };
   if (!net.enabled) {
     netEl.textContent = 'Mode: offline demo (local physics + bots)';
     if (matchEl) matchEl.textContent = 'Match: OFFLINE';
     if (errEl) errEl.style.display = 'none';
     if (cta) cta.style.display = 'none';
+    hideBanner();
   } else if (net.connected) {
     const ping = net.latencyMs != null ? `, ping ~${net.latencyMs.toFixed(0)}ms` : '';
     const reason = net.matchReason ? `, reason: ${net.matchReason}` : '';
@@ -1271,6 +1274,20 @@ function updateHud() {
     if (matchEl) matchEl.textContent = `Match state: ${net.matchState || 'unknown'}${suffix}`;
     if (errEl) errEl.style.display = 'none';
     if (cta) cta.style.display = 'none';
+    if (matchBanner) {
+      if (net.matchState === 'FINISHED') {
+        matchBanner.textContent = `Match finished${net.matchReason ? `: ${net.matchReason}` : ''}`;
+        matchBanner.style.display = 'block';
+      } else if (net.matchState === 'WAITING') {
+        matchBanner.textContent = 'Waiting for players...';
+        matchBanner.style.display = 'block';
+      } else if (net.matchState === 'READY' && readyEndsAt) {
+        matchBanner.textContent = `Starting in ${(Math.max(0, readyEndsAt - Date.now()) / 1000).toFixed(1)}s`;
+        matchBanner.style.display = 'block';
+      } else {
+        matchBanner.style.display = 'none';
+      }
+    }
   } else {
     const errCode = net.error?.code || net.error?.reason;
     const errText = errCode ? ` — error: ${errCode}` : (net.errorMessage ? ` — ${net.errorMessage}` : '');
@@ -1289,6 +1306,7 @@ function updateHud() {
     if (cta) {
       cta.style.display = errCode === 'RECONNECT_MAX' ? 'block' : 'none';
     }
+    hideBanner();
   }
 }
 

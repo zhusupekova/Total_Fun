@@ -63,6 +63,24 @@ html, body, #__next {
   z-index: 10;
 }
 
+.match-banner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 220px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: #e6f2ff;
+  font-size: 15px;
+  text-align: center;
+  box-shadow: 0 14px 40px rgba(0,0,0,0.35);
+  display: none;
+  z-index: 11;
+}
+
 .cta-retry {
   position: absolute;
   bottom: calc(20px + env(safe-area-inset-bottom, 0px));
