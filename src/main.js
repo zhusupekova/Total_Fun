@@ -796,7 +796,7 @@ function applyDebugUi() {
 }
 
 function resetBall() {
-  if (net.enabled && net.connected && net.ws && net.ws.readyState === WebSocket.OPEN) {
+  if (debugUI && net.enabled && net.connected && net.ws && net.ws.readyState === WebSocket.OPEN) {
     net.ws.send(JSON.stringify({ type: 'DEBUG', payload: { cmd: 'RESET_BALL' } }));
     return;
   }

@@ -48,6 +48,7 @@ const MAGNETS = [
 const BOT_TOKEN = process.env.BOT_TOKEN || null;
 const AUTH_GRACE_SEC = parseInt(process.env.AUTH_GRACE_SEC || '86400', 10); // 24h by default
 const REQUIRE_AUTH = process.env.REQUIRE_AUTH === 'true';
+const ALLOW_DEBUG = process.env.ALLOW_DEBUG === 'true';
 const MAX_USERNAME = 32;
 const MAX_USERID = 64;
 
@@ -545,6 +546,7 @@ function handleMessage(ws, raw) {
       handlePong(ws, msg.payload);
       break;
     case 'DEBUG':
+      if (!ALLOW_DEBUG) return;
       if (!meta.get(ws)?.handshaked) return;
       if (msg.payload?.cmd === 'RESET_BALL') resetBall();
       break;
