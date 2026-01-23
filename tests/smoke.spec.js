@@ -14,3 +14,9 @@ test('net panel hidden by default', async ({ page }) => {
   const netPanel = page.locator('#net-panel');
   await expect(netPanel).toBeHidden();
 });
+
+test('net panel visible with debug flag', async ({ page }) => {
+  await page.goto('/?debug=1');
+  const netPanel = page.locator('#net-panel');
+  await expect(netPanel).toBeVisible();
+});
