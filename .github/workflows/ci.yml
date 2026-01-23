@@ -17,6 +17,8 @@ jobs:
           cache: 'npm'
       - name: Install deps
         run: npm ci
+      - name: Build Next.js (static)
+        run: npm run build
       - name: Run WS server smoke
         run: |
           cd server
