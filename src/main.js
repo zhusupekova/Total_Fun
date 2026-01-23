@@ -1291,8 +1291,14 @@ function updateHud() {
     if (errEl) errEl.style.display = 'none';
     if (cta) cta.style.display = 'none';
     if (scoreEl) {
-      const s = net.score || {};
-      scoreEl.textContent = `Score — top:${s.top ?? 0} right:${s.right ?? 0} bottom:${s.bottom ?? 0} left:${s.left ?? 0}`;
+      const goal = window.SERVER_CONFIG?.scoreToWin || null;
+      if (goal) {
+        const s = net.score || {};
+        scoreEl.textContent = `Score ${s.top ?? 0}/${goal} | ${s.right ?? 0}/${goal} | ${s.bottom ?? 0}/${goal} | ${s.left ?? 0}/${goal}`;
+        scoreEl.style.display = '';
+      } else {
+        scoreEl.style.display = 'none';
+      }
     }
     if (matchBanner) {
       if (net.matchState === 'FINISHED') {
