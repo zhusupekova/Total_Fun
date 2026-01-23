@@ -7,7 +7,7 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "ws": "^8.16.0",
-    "nanoid": "^5.0.3"
+    "ws": "^8.19.0",
+    "nanoid": "^5.1.6"
   }
 }
