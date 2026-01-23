@@ -20,3 +20,13 @@ test('net panel visible with debug flag', async ({ page }) => {
   const netPanel = page.locator('#net-panel');
   await expect(netPanel).toBeVisible();
 });
+
+test('score renders when provided', async ({ page }) => {
+  await page.goto('/game');
+  // inject mock score into page context
+  await page.evaluate(() => {
+    window.dispatchEvent(new MessageEvent('message', { data: { type: 'SCORE', payload: { score: { top: 1, right: 2, bottom: 3, left: 4 } } } }));
+  });
+  const scoreLine = page.locator('#score-line');
+  await expect(scoreLine).toContainText('top:1');
+});
