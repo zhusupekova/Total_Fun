@@ -1394,11 +1394,20 @@ function updateBall(dt) {
 }
 
 let lastTime = performance.now();
+let isPageHidden = document.hidden;
+document.addEventListener('visibilitychange', () => {
+  isPageHidden = document.hidden;
+});
 
 function animate() {
   const now = performance.now();
   const dt = Math.min((now - lastTime) / 1000, 0.033);
   lastTime = now;
+
+  if (isPageHidden) {
+    requestAnimationFrame(animate);
+    return;
+  }
 
   if (net.enabled && (!net.connected || (net.matchState && net.matchState !== 'IN_PROGRESS' && net.matchState !== 'READY'))) {
     input.forward = input.back = input.left = input.right = false;
