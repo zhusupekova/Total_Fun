@@ -905,6 +905,9 @@ function handleNetMessage(raw) {
       net.error = msg.payload;
       net.connectionState = 'error';
       console.warn('[net] error', msg.payload);
+      if (['BAD_AUTH', 'BAD_HELLO', 'ROOM_FULL'].includes(msg.payload?.code)) {
+        net.shouldReconnect = false;
+      }
       return;
     }
     if (msg.type === 'MATCH_EVENT') {
