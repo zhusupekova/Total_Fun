@@ -839,6 +839,28 @@ function handleNetMessage(raw) {
         ARENA.ballRadius = msg.payload.arena.ballRadius ?? ballState.radius;
         ballState.radius = ARENA.ballRadius;
       }
+      if (msg.payload?.physics?.magnets) {
+        MAGNETS.forEach((m) => (m.enabled = false));
+        msg.payload.physics.magnets.forEach((m, idx) => {
+          if (MAGNETS[idx]) {
+            MAGNETS[idx].enabled = !!m.enabled;
+            MAGNETS[idx].radius = m.radius;
+            MAGNETS[idx].strength = m.strength;
+            MAGNETS[idx].center.set(m.center.x, m.center.z);
+          }
+        });
+        createMagnetMarkers();
+      }
+      if (msg.payload?.physics?.player) {
+        PLAYER.collider = msg.payload.physics.player.collider || PLAYER.collider;
+        PLAYER.speed = msg.payload.physics.player.speed || PLAYER.speed;
+      }
+      if (msg.payload?.physics?.ball) {
+        const phys = msg.payload.physics.ball;
+        PHYSICS.minSpeed = phys.minSpeed ?? PHYSICS.minSpeed;
+        PHYSICS.maxSpeed = phys.maxSpeed ?? PHYSICS.maxSpeed;
+        PHYSICS.damping = phys.damping ?? PHYSICS.damping;
+      }
       return;
     }
     if (msg.type === 'ROOM_STATE') {

@@ -330,6 +330,11 @@ function sendWelcome(ws, player) {
       snapshotRate: SNAPSHOT_RATE,
       matchState: state.matchState,
       arena: { width: ARENA.width, height: ARENA.height, playerDepth: ARENA.playerDepth, ballRadius: ARENA.ballRadius },
+      physics: {
+        ball: BALL,
+        player: PLAYER,
+        magnets: MAGNETS_ENABLED ? MAGNETS : [],
+      },
     },
   });
 }
