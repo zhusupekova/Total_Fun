@@ -1161,6 +1161,7 @@ function syncNetPlayers(snapshotPlayers) {
   snapshotPlayers.forEach((sp) => {
     const pid = sp.playerId || sp.id;
     const pos = sp.pos || { x: sp.x, z: sp.z };
+    clampPlayerToZone(pos, sp.side);
     let player = players.find((p) => p.id === pid);
     if (!player) {
       const mesh = createPlayer(colorIndexBySide(sp.side), sp.side);
