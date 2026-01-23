@@ -118,6 +118,7 @@ const net = {
   snapshotIntervalMs: 33,
   errorMessage: '',
   score: {},
+  avgPing: null,
 };
 const gltfLoader = new GLTFLoader();
 const texLoader = new THREE.TextureLoader();
@@ -878,7 +879,11 @@ function handleNetMessage(raw) {
     const msg = JSON.parse(raw.data ?? raw);
     if (msg.type === 'PING') {
       const ts = msg.payload?.ts;
-      if (ts) net.latencyMs = net.latencyMs == null ? Date.now() - ts : THREE.MathUtils.lerp(net.latencyMs, Date.now() - ts, 0.3);
+      if (ts) {
+        const sample = Date.now() - ts;
+        net.latencyMs = net.latencyMs == null ? sample : THREE.MathUtils.lerp(net.latencyMs, sample, 0.3);
+        net.avgPing = net.avgPing == null ? sample : THREE.MathUtils.lerp(net.avgPing, sample, 0.08);
+      }
       net.ws?.send(JSON.stringify({ type: 'PONG', payload: { pingId: msg.payload?.pingId, ts: msg.payload?.ts } }));
       return;
     }
@@ -1276,10 +1281,12 @@ function updateHud() {
     if (matchEl) matchEl.textContent = 'Match: OFFLINE';
     if (errEl) errEl.style.display = 'none';
     if (cta) cta.style.display = 'none';
+    if (matchBanner) matchBanner.textContent = 'Offline demo';
     if (scoreEl) scoreEl.textContent = '';
     hideBanner();
   } else if (net.connected) {
-    const ping = net.latencyMs != null ? `, ping ~${net.latencyMs.toFixed(0)}ms` : '';
+    const pingVal = net.avgPing ?? net.latencyMs;
+    const ping = pingVal != null ? `, ping ~${pingVal.toFixed(0)}ms` : '';
     const reason = net.matchReason ? `, reason: ${net.matchReason}` : '';
     netEl.textContent = `Online (${net.wsUrl}) — player ${net.id ?? '?'} side ${net.side ?? '?'} — state ${net.matchState}${ping}${reason}`;
     let suffix = '';
