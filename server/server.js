@@ -92,6 +92,7 @@ const metrics = {
   badAuth: 0,
   roomFull: 0,
 };
+const METRICS_INTERVAL_MS = parseInt(process.env.METRICS_INTERVAL_MS || '60000', 10);
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -614,3 +615,21 @@ setInterval(() => {
   }
   pingCounter += 1;
 }, 1000 / TICK_RATE);
+
+if (METRICS_INTERVAL_MS > 0) {
+  setInterval(() => {
+    const uptime = Math.round((Date.now() - metrics.startedAt) / 1000);
+    const payload = {
+      uptime,
+      conns: metrics.connectionsTotal,
+      msgs: metrics.messagesTotal,
+      rateHits: metrics.rateLimitHits,
+      badAuth: metrics.badAuth,
+      roomFull: metrics.roomFull,
+      players: connectedPlayers().length,
+      matchState: state.matchState,
+      tick: state.tick,
+    };
+    console.log('[metrics]', JSON.stringify(payload));
+  }, METRICS_INTERVAL_MS);
+}
