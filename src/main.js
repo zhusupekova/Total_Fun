@@ -1305,23 +1305,25 @@ function updateHud() {
     if (cta) cta.style.display = 'none';
     if (scoreEl) {
       const goal = window.SERVER_CONFIG?.scoreToWin || null;
+      const s = net.score || {};
       if (goal) {
-        const s = net.score || {};
-        scoreEl.textContent = `Score ${s.top ?? 0}/${goal} | ${s.right ?? 0}/${goal} | ${s.bottom ?? 0}/${goal} | ${s.left ?? 0}/${goal}`;
-        scoreEl.style.display = '';
+        scoreEl.textContent = `Score (goal ${goal}) — top:${s.top ?? 0}/${goal} right:${s.right ?? 0}/${goal} bottom:${s.bottom ?? 0}/${goal} left:${s.left ?? 0}/${goal}`;
       } else {
-        scoreEl.style.display = 'none';
+        scoreEl.textContent = `Score — top:${s.top ?? 0} right:${s.right ?? 0} bottom:${s.bottom ?? 0} left:${s.left ?? 0}`;
       }
+      scoreEl.style.display = '';
     }
     if (matchBanner) {
       if (net.matchState === 'FINISHED') {
         const winSide = net.matchReason?.startsWith('WIN_') ? net.matchReason.slice(4).toLowerCase() : null;
+        const s = net.score || {};
+        const scoreText = `Score top:${s.top ?? 0} right:${s.right ?? 0} bottom:${s.bottom ?? 0} left:${s.left ?? 0}`;
         if (winSide) {
-          matchBanner.textContent = `Winner: ${winSide}`;
+          matchBanner.textContent = `Winner: ${winSide} • ${scoreText}`;
           matchBanner.style.borderColor = sideHex(winSide);
           matchBanner.style.color = sideHex(winSide);
         } else {
-          matchBanner.textContent = `Match finished${net.matchReason ? `: ${net.matchReason}` : ''}`;
+          matchBanner.textContent = `Match finished${net.matchReason ? `: ${net.matchReason}` : ''} • ${scoreText}`;
           matchBanner.style.borderColor = 'rgba(255,255,255,0.15)';
           matchBanner.style.color = '#e6f2ff';
         }
@@ -1329,7 +1331,9 @@ function updateHud() {
       } else if (net.matchState === 'WAITING') {
         const goal = (window.SERVER_CONFIG?.scoreToWin) ? ` | first to ${window.SERVER_CONFIG.scoreToWin}` : '';
         const timeout = window.SERVER_CONFIG?.roomTimeoutMs ? ` | timeout ${Math.round(window.SERVER_CONFIG.roomTimeoutMs / 1000)}s` : '';
-        matchBanner.textContent = `Waiting for players...${goal}${timeout}`;
+        const s = net.score || {};
+        const scoreText = ` | score ${s.top ?? 0}/${s.right ?? 0}/${s.bottom ?? 0}/${s.left ?? 0}`;
+        matchBanner.textContent = `Waiting for players...${goal}${timeout}${scoreText}`;
         matchBanner.style.display = 'block';
       } else if (net.matchState === 'READY' && readyEndsAt) {
         matchBanner.textContent = `Starting in ${(Math.max(0, readyEndsAt - Date.now()) / 1000).toFixed(1)}s`;
