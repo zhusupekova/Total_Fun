@@ -53,6 +53,7 @@ const REQUIRE_AUTH = process.env.REQUIRE_AUTH === 'true';
 const ALLOW_DEBUG = process.env.ALLOW_DEBUG === 'true';
 const ROOM_TIMEOUT_MS = parseInt(process.env.ROOM_TIMEOUT_MS || '0', 10); // 0 = disable
 const SCORE_TO_WIN = parseInt(process.env.SCORE_TO_WIN || '0', 10); // 0 = disable scoring
+const FINISHED_RESET_MS = parseInt(process.env.FINISHED_RESET_MS || '5000', 10); // auto reset to WAITING after finish
 const MAX_USERNAME = 32;
 const MAX_USERID = 64;
 
@@ -61,6 +62,7 @@ const state = {
   tick: 0,
   matchState: 'WAITING',
   matchReason: null,
+  finishedAt: null,
   readyUntil: null,
   ball: { x: 0, z: 0, vx: 0, vz: 0 },
   lastSnapshotAt: 0,
@@ -295,6 +297,8 @@ function setMatchState(next, reason = null) {
   state.matchState = next;
   state.matchReason = reason;
   if (next === 'IN_PROGRESS') roomStartedAt = Date.now();
+  if (next === 'FINISHED') state.finishedAt = Date.now();
+  if (next === 'WAITING') state.finishedAt = null;
   broadcast({ type: 'MATCH_EVENT', payload: { event: `MATCH_${next}`, reason: state.matchReason } });
   if (next === 'FINISHED') resetBall();
 }
@@ -661,6 +665,14 @@ setInterval(() => {
     if (now - roomStartedAt > ROOM_TIMEOUT_MS) {
       setMatchState('FINISHED', 'TIMEOUT');
       resetBall();
+    }
+  }
+
+  if (FINISHED_RESET_MS > 0 && state.matchState === 'FINISHED' && state.finishedAt) {
+    if (now - state.finishedAt > FINISHED_RESET_MS) {
+      state.readyUntil = null;
+      resetScore();
+      setMatchState('WAITING', 'RESET');
     }
   }
 }, 1000 / TICK_RATE);
