@@ -1377,9 +1377,13 @@ function animate() {
   lastTime = now;
 
   if (!input.paused) {
-    if (net.enabled && net.connected) {
-      sendNetInput();
-      applyNetState();
+    if (net.enabled) {
+      if (net.connected) {
+        sendNetInput();
+        applyNetState();
+      } else {
+        // online mode but no connection: freeze positions to avoid desync with server authority
+      }
     } else {
       moveLocalPlayer(dt);
       moveBots(dt);
