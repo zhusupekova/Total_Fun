@@ -85,6 +85,7 @@ const httpServer = createServer((req, res) => {
       tick: state.tick,
       metrics,
       version: pkg.version,
+      score: state.score,
     };
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify(payload));
@@ -108,6 +109,8 @@ const metrics = {
   rateLimitHits: 0,
   badAuth: 0,
   roomFull: 0,
+  lastWinner: null,
+  lastScore: null,
 };
 const METRICS_INTERVAL_MS = parseInt(process.env.METRICS_INTERVAL_MS || '60000', 10);
 
@@ -306,6 +309,11 @@ function setMatchState(next, reason = null) {
   if (next === 'IN_PROGRESS') roomStartedAt = Date.now();
   if (next === 'FINISHED') state.finishedAt = Date.now();
   if (next === 'WAITING') state.finishedAt = null;
+  if (next === 'FINISHED') {
+    const winSide = typeof reason === 'string' && reason.startsWith('WIN_') ? reason.slice(4).toLowerCase() : null;
+    metrics.lastWinner = winSide;
+    metrics.lastScore = { ...state.score };
+  }
   broadcast({ type: 'MATCH_EVENT', payload: { event: `MATCH_${next}`, reason: state.matchReason } });
   if (next === 'FINISHED') resetBall();
 }
@@ -700,6 +708,7 @@ if (METRICS_INTERVAL_MS > 0) {
       players: connectedPlayers().length,
       matchState: state.matchState,
       tick: state.tick,
+      lastWinner: metrics.lastWinner,
     };
     console.log('[metrics]', JSON.stringify(payload));
   }, METRICS_INTERVAL_MS);
