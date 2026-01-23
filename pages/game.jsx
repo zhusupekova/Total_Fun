@@ -26,6 +26,7 @@ function GameView() {
         <button id="audio-toggle">Sound: on</button>
       </div>
       <div id="error-banner" />
+      <div id="cta-retry" className="cta-retry">Connection lost. Tap Retry.</div>
       <div id="net-panel" className="debug-only">
         <div>WebSocket server</div>
         <input id="ws-url" type="text" defaultValue="ws://localhost:7071" />

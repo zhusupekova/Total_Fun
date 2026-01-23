@@ -757,6 +757,18 @@ function bindNetControls() {
       net.manualRetry = false;
     });
   }
+  const ctaRetry = document.getElementById('cta-retry');
+  if (ctaRetry) {
+    ctaRetry.addEventListener('click', () => {
+      const url = input?.value?.trim() || net.wsUrl;
+      net.manualRetry = true;
+      stopNet();
+      net.shouldReconnect = true;
+      startNet(url);
+      net.manualRetry = false;
+      ctaRetry.style.display = 'none';
+    });
+  }
   if (btnAudio) {
     const refresh = () => {
       btnAudio.textContent = `Sound: ${audioState.enabled ? 'on' : 'off'}`;
@@ -803,6 +815,7 @@ function scheduleReconnect() {
     net.connectionState = 'error';
     net.error = { code: 'RECONNECT_MAX' };
     net.errorMessage = 'Max reconnect attempts reached';
+    showReconnectCta();
     return;
   }
   net.connectionState = 'reconnecting';
@@ -1211,11 +1224,13 @@ function updateHud() {
   const netEl = document.getElementById('net-status');
   const matchEl = document.getElementById('match-status');
   const errEl = document.getElementById('error-banner');
+  const cta = document.getElementById('cta-retry');
   if (!netEl) return;
   if (!net.enabled) {
     netEl.textContent = 'Mode: offline demo (local physics + bots)';
     if (matchEl) matchEl.textContent = 'Match: OFFLINE';
     if (errEl) errEl.style.display = 'none';
+    if (cta) cta.style.display = 'none';
   } else if (net.connected) {
     const ping = net.latencyMs != null ? `, ping ~${net.latencyMs.toFixed(0)}ms` : '';
     netEl.textContent = `Online (${net.wsUrl}) — player ${net.id ?? '?'} side ${net.side ?? '?'} — state ${net.matchState}${ping}`;
@@ -1226,6 +1241,7 @@ function updateHud() {
     }
     if (matchEl) matchEl.textContent = `Match state: ${net.matchState || 'unknown'}${suffix}`;
     if (errEl) errEl.style.display = 'none';
+    if (cta) cta.style.display = 'none';
   } else {
     const errCode = net.error?.code || net.error?.reason;
     const errText = errCode ? ` — error: ${errCode}` : (net.errorMessage ? ` — ${net.errorMessage}` : '');
@@ -1240,6 +1256,9 @@ function updateHud() {
       } else {
         errEl.style.display = 'none';
       }
+    }
+    if (cta) {
+      cta.style.display = errCode === 'RECONNECT_MAX' ? 'block' : 'none';
     }
   }
 }

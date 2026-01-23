@@ -62,6 +62,24 @@ html, body, #__next {
   z-index: 10;
 }
 
+.cta-retry {
+  position: absolute;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #1ee0d7, #4e7bff);
+  color: #0b1220;
+  font-weight: 700;
+  font-size: 14px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.28);
+  cursor: pointer;
+  display: none;
+  z-index: 12;
+  user-select: none;
+}
+
 #audio-toggle {
   margin-top: 6px;
   padding: 4px 8px;
