@@ -52,6 +52,7 @@ const AUTH_GRACE_SEC = parseInt(process.env.AUTH_GRACE_SEC || '86400', 10); // 2
 const REQUIRE_AUTH = process.env.REQUIRE_AUTH === 'true';
 const ALLOW_DEBUG = process.env.ALLOW_DEBUG === 'true';
 const ROOM_TIMEOUT_MS = parseInt(process.env.ROOM_TIMEOUT_MS || '0', 10); // 0 = disable
+const SCORE_TO_WIN = parseInt(process.env.SCORE_TO_WIN || '0', 10); // 0 = disable scoring
 const MAX_USERNAME = 32;
 const MAX_USERID = 64;
 
@@ -63,6 +64,7 @@ const state = {
   readyUntil: null,
   ball: { x: 0, z: 0, vx: 0, vz: 0 },
   lastSnapshotAt: 0,
+  score: { top: 0, right: 0, bottom: 0, left: 0 },
 };
 
 const sockets = new Map(); // ws -> playerId
@@ -183,10 +185,12 @@ function collideWalls() {
     state.ball.z = minZ;
     state.ball.vz = Math.abs(state.ball.vz) * BALL.restitutionWall;
     hit = true;
+    scorePoint('top');
   } else if (state.ball.z > maxZ) {
     state.ball.z = maxZ;
     state.ball.vz = -Math.abs(state.ball.vz) * BALL.restitutionWall;
     hit = true;
+    scorePoint('bottom');
   }
 
   if (hit) {
@@ -225,6 +229,21 @@ function collideWithPlayer(player) {
   const len = Math.hypot(state.ball.vx, state.ball.vz) || 1;
   state.ball.vx = (state.ball.vx / len) * clampedSpeed;
   state.ball.vz = (state.ball.vz / len) * clampedSpeed;
+}
+
+function scorePoint(side) {
+  if (!SCORE_TO_WIN) return;
+  if (!state.score[side]) state.score[side] = 0;
+  state.score[side] += 1;
+  broadcast({ type: 'SCORE', payload: { side, score: state.score } });
+  if (state.score[side] >= SCORE_TO_WIN) {
+    setMatchState('FINISHED', `WIN_${side.toUpperCase()}`);
+    resetBall();
+  } else {
+    resetBall();
+    setMatchState('READY', 'SCORE');
+    state.readyUntil = Date.now() + READY_DURATION;
+  }
 }
 
 function applyBallLimits() {
@@ -287,9 +306,14 @@ function resetBall() {
   state.ball.vz = 0;
 }
 
+function resetScore() {
+  state.score = { top: 0, right: 0, bottom: 0, left: 0 };
+}
+
 function maybeStartMatch() {
   const active = connectedPlayers().length;
   if (active === MAX_PLAYERS && (state.matchState === 'WAITING' || state.matchState === 'FINISHED')) {
+    resetScore();
     state.readyUntil = Date.now() + READY_DURATION;
     setMatchState('READY');
   }
@@ -352,6 +376,7 @@ function snapshot() {
     matchReason: state.matchReason,
     ball: { pos: { x: q(state.ball.x), z: q(state.ball.z) }, r: ARENA.ballRadius },
     players: connectedPlayers().map((p) => ({ playerId: p.id, side: p.side, pos: { x: q(p.x), z: q(p.z) } })),
+    score: state.score,
   };
   if (state.tick % CONFIG_EVERY_TICKS === 0) {
     payload.config = {
