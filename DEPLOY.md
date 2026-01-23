@@ -20,6 +20,8 @@ Environment=MAX_MSG_PER_SEC=120
 Environment=MAX_CONN_PER_IP=8
 Environment=CONN_WINDOW_MS=10000
 Environment=MAX_PAYLOAD=4096
+Environment=METRICS_INTERVAL_MS=60000
+Environment=ALLOW_DEBUG=false
 ExecStart=/usr/bin/node server.js
 Restart=always
 

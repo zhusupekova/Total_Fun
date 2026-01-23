@@ -29,3 +29,4 @@ npm start  # PORT=7071 by default
 - Connection guard: `MAX_CONN_PER_IP` (default 8 per `CONN_WINDOW_MS` window, default 10s) and message rate limit (120 msg/sec).
 - `MAX_PAYLOAD` — max incoming WS message size in bytes (default 4096).
 - Metrics: `/health` returns JSON (uptime, players, tick, counters). Periodic stdout logging controlled by `METRICS_INTERVAL_MS` (default 60000, set to 0 to disable).
+- Debug: `ALLOW_DEBUG=true` — разрешить DEBUG-команды (сброс мяча) от клиентов; по умолчанию выкл.
