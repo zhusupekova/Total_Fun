@@ -877,7 +877,7 @@ function scheduleReconnect() {
 
 function handleNetMessage(raw) {
   try {
-    const msg = JSON.parse(raw.data ?? raw);
+    const msg = JSON.parse(raw?.data ?? raw);
     if (msg.type === 'PING') {
       const ts = msg.payload?.ts;
       if (ts) {
@@ -931,6 +931,10 @@ function handleNetMessage(raw) {
       net.snapshotBuffer.prev = net.snapshotBuffer.curr;
       net.snapshotBuffer.curr = { t: msg.t, payload: msg.payload, recvAt: performance.now(), sentAt: msg.ts || performance.now() };
       net.snapshot = msg;
+      return;
+    }
+    if (msg.type === 'SCORE') {
+      if (msg.payload?.score) net.score = msg.payload.score;
       return;
     }
     if (msg.type === 'ERROR') {
@@ -1532,4 +1536,10 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+window.addEventListener('message', (evt) => {
+  if (evt?.data?.type) {
+    try { handleNetMessage(evt.data); } catch (e) { console.warn('local message failed', e); }
+  }
 });
