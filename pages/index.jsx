@@ -1,12 +1,10 @@
-export async function getServerSideProps() {
-  return {
-    redirect: {
-      destination: '/game',
-      permanent: false,
-    },
-  };
-}
+import { useEffect } from 'react';
 
 export default function Index() {
-  return null;
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.location.replace('/game');
+    }
+  }, []);
+  return <p>Redirecting to /game…</p>;
 }
