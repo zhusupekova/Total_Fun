@@ -67,8 +67,15 @@ const connRate = new Map(); // ip -> { count, ts }
 const MAX_PAYLOAD = parseInt(process.env.MAX_PAYLOAD || '4096', 10);
 const httpServer = createServer((req, res) => {
   if (req.url === '/health') {
-    res.writeHead(200, { 'content-type': 'text/plain' });
-    res.end('ok');
+    const payload = {
+      status: 'ok',
+      uptime_sec: Math.round((Date.now() - metrics.startedAt) / 1000),
+      players: connectedPlayers().length,
+      tick: state.tick,
+      metrics,
+    };
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(payload));
     return;
   }
   res.writeHead(404);
@@ -76,6 +83,15 @@ const httpServer = createServer((req, res) => {
 });
 
 const wss = new WebSocketServer({ server: httpServer, maxPayload: MAX_PAYLOAD });
+
+const metrics = {
+  startedAt: Date.now(),
+  connectionsTotal: 0,
+  messagesTotal: 0,
+  rateLimitHits: 0,
+  badAuth: 0,
+  roomFull: 0,
+};
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -416,6 +432,7 @@ function handleHello(ws, payload) {
   const initDataRaw = cleaned.initData;
   const auth = verifyTelegramInitData(initDataRaw);
   if (!auth.ok) {
+    metrics.badAuth += 1;
     send(ws, makeError('BAD_AUTH', auth.reason || 'Auth failed'));
     ws.close();
     return;
@@ -428,6 +445,7 @@ function handleHello(ws, payload) {
   const slotAvailable = connectedPlayers().length < MAX_PLAYERS || (existing && !existing.connected);
 
   if (!slotAvailable) {
+    metrics.roomFull += 1;
     send(ws, makeError('ROOM_FULL', 'Room is full'));
     ws.close();
     return;
@@ -485,6 +503,7 @@ function handlePong(ws, payload) {
 }
 
 function handleMessage(ws, raw) {
+  metrics.messagesTotal += 1;
   const now = Date.now();
   const bucket = rate.get(ws) || { count: 0, ts: now };
   if (now - bucket.ts >= 1000) {
@@ -494,6 +513,7 @@ function handleMessage(ws, raw) {
   bucket.count += 1;
   rate.set(ws, bucket);
   if (bucket.count > MAX_MSG_PER_SEC) {
+    metrics.rateLimitHits += 1;
     send(ws, makeError('RATE_LIMIT', 'Too many messages'));
     return;
   }
@@ -562,6 +582,7 @@ wss.on('connection', (ws, req) => {
     return;
   }
 
+  metrics.connectionsTotal += 1;
   meta.set(ws, { handshaked: false, ip });
   ws.on('message', (data) => handleMessage(ws, data));
   ws.on('close', () => disconnect(ws));
