@@ -59,6 +59,7 @@ const state = {
   players: new Map(), // id -> {id,userId,username,side,x,z,input,lastInputAt,ws,connected,disconnectedAt,ping}
   tick: 0,
   matchState: 'WAITING',
+  matchReason: null,
   readyUntil: null,
   ball: { x: 0, z: 0, vx: 0, vz: 0 },
   lastSnapshotAt: 0,
@@ -270,11 +271,12 @@ function sendRoomState() {
   });
 }
 
-function setMatchState(next) {
+function setMatchState(next, reason = null) {
   if (state.matchState === next) return;
   state.matchState = next;
+  state.matchReason = reason;
   if (next === 'IN_PROGRESS') roomStartedAt = Date.now();
-  broadcast({ type: 'MATCH_EVENT', payload: { event: `MATCH_${next}` } });
+  broadcast({ type: 'MATCH_EVENT', payload: { event: `MATCH_${next}`, reason: state.matchReason } });
   if (next === 'FINISHED') resetBall();
 }
 
@@ -296,7 +298,7 @@ function maybeStartMatch() {
 function maybeFinishMatch() {
   const active = connectedPlayers().length;
   if (active < MAX_PLAYERS && (state.matchState === 'READY' || state.matchState === 'IN_PROGRESS')) {
-    setMatchState(active === 0 ? 'WAITING' : 'FINISHED');
+    setMatchState(active === 0 ? 'WAITING' : 'FINISHED', active === 0 ? 'EMPTY' : 'PLAYER_LEFT');
     state.readyUntil = null;
     resetBall();
   }
@@ -317,7 +319,7 @@ function tick(dt) {
 
   const active = connectedPlayers();
   if (state.matchState === 'READY' && state.readyUntil && Date.now() >= state.readyUntil) {
-    setMatchState('IN_PROGRESS');
+    setMatchState('IN_PROGRESS', 'ALL_READY');
     kickOffBall();
   }
 
@@ -347,6 +349,7 @@ function snapshot() {
   const ts = Date.now();
   const payload = {
     matchState: state.matchState,
+    matchReason: state.matchReason,
     ball: { pos: { x: q(state.ball.x), z: q(state.ball.z) }, r: ARENA.ballRadius },
     players: connectedPlayers().map((p) => ({ playerId: p.id, side: p.side, pos: { x: q(p.x), z: q(p.z) } })),
   };
@@ -631,7 +634,7 @@ setInterval(() => {
 
   if (ROOM_TIMEOUT_MS > 0 && state.matchState === 'IN_PROGRESS') {
     if (now - roomStartedAt > ROOM_TIMEOUT_MS) {
-      setMatchState('FINISHED');
+      setMatchState('FINISHED', 'TIMEOUT');
       resetBall();
     }
   }
