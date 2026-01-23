@@ -28,10 +28,6 @@ jobs:
           cd ..
           npm run smoke:ws -- --url=ws://localhost:7071
       - name: Run Playwright tests
-        env:
-          BASE_URL: http://localhost:3000/game
         run: |
-          npm run dev -- --hostname 0.0.0.0 --port 3000 &
           npx playwright install --with-deps chromium
-          sleep 10
           npm run test:e2e
