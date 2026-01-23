@@ -60,8 +60,9 @@ const ASSETS = {
 const playerPrefabs = new Map();
 let playerFallbackPrefab = null;
 const params = new URLSearchParams(window.location.search);
+const envWs = process.env.NEXT_PUBLIC_WS;
 const storedWs = typeof localStorage !== 'undefined' ? localStorage.getItem('tf_ws_url') : null;
-const wsUrl = params.get('ws') || storedWs;
+const wsUrl = params.get('ws') || envWs || storedWs;
 const magnetsEnabled = params.get('magnets') !== 'off';
 const debugUI = params.get('debug') === '1';
 
