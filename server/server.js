@@ -47,6 +47,8 @@ const MAGNETS = [
 const BOT_TOKEN = process.env.BOT_TOKEN || null;
 const AUTH_GRACE_SEC = parseInt(process.env.AUTH_GRACE_SEC || '86400', 10); // 24h by default
 const REQUIRE_AUTH = process.env.REQUIRE_AUTH === 'true';
+const MAX_USERNAME = 32;
+const MAX_USERID = 64;
 
 const state = {
   players: new Map(), // id -> {id,userId,username,side,x,z,input,lastInputAt,ws,connected,disconnectedAt,ping}
@@ -336,6 +338,30 @@ function makeError(code, message) {
   return { type: 'ERROR', payload: { code, message } };
 }
 
+function sanitizeHelloPayload(payload) {
+  if (payload == null || typeof payload !== 'object') return { ok: false, reason: 'BAD_PAYLOAD' };
+  const userIdRaw = payload.userId != null ? String(payload.userId) : null;
+  const usernameRaw = payload.username != null ? String(payload.username) : null;
+  if (userIdRaw && userIdRaw.length > MAX_USERID) return { ok: false, reason: 'USERID_TOO_LONG' };
+  if (usernameRaw && usernameRaw.length > MAX_USERNAME) return { ok: false, reason: 'USERNAME_TOO_LONG' };
+  return {
+    ok: true,
+    userId: userIdRaw,
+    username: usernameRaw,
+    initData: payload.initData,
+  };
+}
+
+function sanitizeInputPayload(payload) {
+  if (payload == null || typeof payload !== 'object') return null;
+  return {
+    forward: !!payload.forward,
+    back: !!payload.back,
+    left: !!payload.left,
+    right: !!payload.right,
+  };
+}
+
 function verifyTelegramInitData(initDataRaw) {
   if (!BOT_TOKEN) return { ok: !REQUIRE_AUTH, reason: 'NO_BOT_TOKEN' };
   if (!initDataRaw) return { ok: false, reason: 'MISSING_INITDATA' };
@@ -364,7 +390,14 @@ function verifyTelegramInitData(initDataRaw) {
 }
 
 function handleHello(ws, payload) {
-  const initDataRaw = payload?.initData;
+  const cleaned = sanitizeHelloPayload(payload);
+  if (!cleaned.ok) {
+    send(ws, makeError('BAD_HELLO', cleaned.reason));
+    ws.close();
+    return;
+  }
+
+  const initDataRaw = cleaned.initData;
   const auth = verifyTelegramInitData(initDataRaw);
   if (!auth.ok) {
     send(ws, makeError('BAD_AUTH', auth.reason || 'Auth failed'));
@@ -373,8 +406,8 @@ function handleHello(ws, payload) {
   }
 
   const tgUser = auth.user;
-  const userId = tgUser?.id ? String(tgUser.id) : (payload?.userId ? String(payload.userId) : `guest-${nanoid(6)}`);
-  const username = tgUser?.username || payload?.username?.slice?.(0, 32) || 'Player';
+  const userId = tgUser?.id ? String(tgUser.id) : (cleaned.userId || `guest-${nanoid(6)}`);
+  const username = tgUser?.username || (cleaned.username || 'Player').slice(0, MAX_USERNAME);
   const existing = [...state.players.values()].find((p) => p.userId === userId);
   const slotAvailable = connectedPlayers().length < MAX_PLAYERS || (existing && !existing.connected);
 
@@ -420,12 +453,8 @@ function handleInput(ws, payload) {
   const now = Date.now();
   if (now - player.lastInputAt < INPUT_INTERVAL_MS) return;
   player.lastInputAt = now;
-  const input = {
-    forward: !!payload?.forward,
-    back: !!payload?.back,
-    left: !!payload?.left,
-    right: !!payload?.right,
-  };
+  const input = sanitizeInputPayload(payload);
+  if (!input) return;
   player.input = input;
 }
 
