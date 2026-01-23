@@ -39,6 +39,10 @@ npm start           # PORT=7071 по умолчанию
 - `AUTH_GRACE_SEC` — TTL auth_date, по умолчанию 86400.
 - `MAX_MSG_PER_SEC` — лимит входящих сообщений (120).
 - `MAX_CONN_PER_IP` / `CONN_WINDOW_MS` — квота подключений с IP (8 / 10000).
+- `SCORE_TO_WIN` — включить счёт и финиш по очкам (0 = выкл, очки при касании север/юг борта).
+- `ROOM_TIMEOUT_MS` — принудительное завершение матча по времени (0 = выкл).
+- `FINISHED_RESET_MS` — через сколько мс после FINISHED возвращаться в WAITING (default 5000).
+- `MAX_PAYLOAD` — max incoming WS message size in bytes (default 4096).
 
 ### Протокол
 - Client→Server: `HELLO { userId?, username?, initData? }`, `INPUT {forward,back,left,right}`, `PONG { pingId, ts }`, `DEBUG { cmd: "RESET_BALL" }`
