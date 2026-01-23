@@ -928,6 +928,10 @@ function handleNetMessage(raw) {
       }
       return;
     }
+    if (msg.type === 'SCORE') {
+      if (msg.payload?.score) net.score = msg.payload.score;
+      return;
+    }
     if (msg.type === 'MATCH_EVENT') {
       net.matchState = msg.payload?.event?.replace('MATCH_', '') || net.matchState;
       if (net.matchState === 'READY') {
