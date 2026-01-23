@@ -907,6 +907,7 @@ function handleNetMessage(raw) {
     }
     if (msg.type === 'SNAPSHOT') {
       net.matchState = msg.payload?.matchState || net.matchState;
+      net.matchReason = msg.payload?.matchReason || null;
       if (!net.hasSnapshot) {
         clearPlayers();
         net.hasSnapshot = true;
@@ -1260,7 +1261,8 @@ function updateHud() {
     if (cta) cta.style.display = 'none';
   } else if (net.connected) {
     const ping = net.latencyMs != null ? `, ping ~${net.latencyMs.toFixed(0)}ms` : '';
-    netEl.textContent = `Online (${net.wsUrl}) — player ${net.id ?? '?'} side ${net.side ?? '?'} — state ${net.matchState}${ping}`;
+    const reason = net.matchReason ? `, reason: ${net.matchReason}` : '';
+    netEl.textContent = `Online (${net.wsUrl}) — player ${net.id ?? '?'} side ${net.side ?? '?'} — state ${net.matchState}${ping}${reason}`;
     let suffix = '';
     if (net.matchState === 'READY' && readyEndsAt) {
       const left = Math.max(0, readyEndsAt - Date.now());
