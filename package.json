@@ -10,7 +10,8 @@
     "build:assets": "node tools/generate_placeholders.js",
     "smoke:ws": "node tools/ws_smoke.js",
     "test:e2e": "playwright test",
-    "lint": "next lint"
+    "lint": "next lint",
+    "format": "prettier --write ."
   },
   "dependencies": {
     "next": "^14.2.3",
