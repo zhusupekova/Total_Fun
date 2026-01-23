@@ -1,4 +1,5 @@
 import { WebSocketServer } from 'ws';
+import { createServer } from 'http';
 import { nanoid } from 'nanoid';
 import crypto from 'crypto';
 
@@ -64,7 +65,17 @@ const meta = new Map(); // ws -> { handshaked: bool, ip }
 const rate = new Map(); // ws -> { count, ts }
 const connRate = new Map(); // ip -> { count, ts }
 const MAX_PAYLOAD = parseInt(process.env.MAX_PAYLOAD || '4096', 10);
-const wss = new WebSocketServer({ port: PORT, maxPayload: MAX_PAYLOAD });
+const httpServer = createServer((req, res) => {
+  if (req.url === '/health') {
+    res.writeHead(200, { 'content-type': 'text/plain' });
+    res.end('ok');
+    return;
+  }
+  res.writeHead(404);
+  res.end();
+});
+
+const wss = new WebSocketServer({ server: httpServer, maxPayload: MAX_PAYLOAD });
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
