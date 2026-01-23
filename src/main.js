@@ -1351,7 +1351,7 @@ function updateHud() {
     if (errEl) {
       const message = errCode || net.errorMessage;
       if (message) {
-        errEl.textContent = message;
+        errEl.textContent = `Connection error: ${message}`;
         errEl.style.display = 'block';
       } else {
         errEl.style.display = 'none';
