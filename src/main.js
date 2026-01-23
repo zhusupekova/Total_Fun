@@ -60,7 +60,8 @@ const ASSETS = {
 const playerPrefabs = new Map();
 let playerFallbackPrefab = null;
 const params = new URLSearchParams(window.location.search);
-const wsUrl = params.get('ws');
+const storedWs = typeof localStorage !== 'undefined' ? localStorage.getItem('tf_ws_url') : null;
+const wsUrl = params.get('ws') || storedWs;
 const magnetsEnabled = params.get('magnets') !== 'off';
 const debugUI = params.get('debug') === '1';
 
@@ -743,6 +744,9 @@ function bindNetControls() {
     btnConnect.addEventListener('click', () => {
       const url = input?.value?.trim() || net.wsUrl;
       net.manualRetry = false;
+      if (url && typeof localStorage !== 'undefined') {
+        try { localStorage.setItem('tf_ws_url', url); } catch {}
+      }
       startNet(url);
     });
   }
