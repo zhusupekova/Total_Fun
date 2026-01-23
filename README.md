@@ -19,6 +19,7 @@ npm run build
 npm run export   # статика в out/
 ```
 - Для хостинга в TMA отдавайте содержимое `out/` по HTTPS, укажите URL в BotFather (Web App).
+- E2E smoke (Playwright): запустите dev-сервер и в другом терминале `npm run test:e2e` (BASE_URL можно переопределить).
 - Параметры query:
   - `ws=ws://host:port` — включить online режим.
   - `magnets=off` — отключить магнитные зоны (клиент).
