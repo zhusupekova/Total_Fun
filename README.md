@@ -13,6 +13,12 @@ npm install
 npm run dev
 # открыть http://localhost:3000/game
 ```
+- Прод сборка (статический экспорт):
+```bash
+npm run build
+npm run export   # статика в out/
+```
+- Для хостинга в TMA отдавайте содержимое `out/` по HTTPS, укажите URL в BotFather (Web App).
 - Параметры query:
   - `ws=ws://host:port` — включить online режим.
   - `magnets=off` — отключить магнитные зоны (клиент).
