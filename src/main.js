@@ -821,6 +821,14 @@ function applyConfigFromServer(cfg = {}) {
     PHYSICS.maxSpeed = phys.ball.maxSpeed ?? PHYSICS.maxSpeed;
     PHYSICS.damping = phys.ball.damping ?? PHYSICS.damping;
   }
+  if (cfg.scoreToWin != null) {
+    window.SERVER_CONFIG = window.SERVER_CONFIG || {};
+    window.SERVER_CONFIG.scoreToWin = cfg.scoreToWin;
+  }
+  if (cfg.roomTimeoutMs != null) {
+    window.SERVER_CONFIG = window.SERVER_CONFIG || {};
+    window.SERVER_CONFIG.roomTimeoutMs = cfg.roomTimeoutMs;
+  }
 }
 
 function applyDebugUi() {
@@ -1291,7 +1299,8 @@ function updateHud() {
         matchBanner.textContent = `Match finished${net.matchReason ? `: ${net.matchReason}` : ''}`;
         matchBanner.style.display = 'block';
       } else if (net.matchState === 'WAITING') {
-        matchBanner.textContent = 'Waiting for players...';
+        const goal = (window.SERVER_CONFIG?.scoreToWin) ? ` | first to ${window.SERVER_CONFIG.scoreToWin}` : '';
+        matchBanner.textContent = `Waiting for players...${goal}`;
         matchBanner.style.display = 'block';
       } else if (net.matchState === 'READY' && readyEndsAt) {
         matchBanner.textContent = `Starting in ${(Math.max(0, readyEndsAt - Date.now()) / 1000).toFixed(1)}s`;

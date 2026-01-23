@@ -386,6 +386,8 @@ function snapshot() {
     payload.config = {
       arena: ARENA,
       physics: { BALL, PLAYER, MAGNETS: MAGNETS_ENABLED ? MAGNETS : [] },
+      scoreToWin: SCORE_TO_WIN,
+      roomTimeoutMs: ROOM_TIMEOUT_MS,
     };
   }
   broadcast({ type: 'SNAPSHOT', t: state.tick, ts, payload });
