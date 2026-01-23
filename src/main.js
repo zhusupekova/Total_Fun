@@ -790,6 +790,38 @@ function bindNetControls() {
   }
 }
 
+function applyConfigFromServer(cfg = {}) {
+  if (cfg.arena) {
+    ARENA.width = cfg.arena.width ?? ARENA.width;
+    ARENA.height = cfg.arena.height ?? ARENA.height;
+    ARENA.playerDepth = cfg.arena.playerDepth ?? ARENA.playerDepth;
+    ARENA.ballRadius = cfg.arena.ballRadius ?? ARENA.ballRadius;
+    ballState.radius = ARENA.ballRadius;
+  }
+  const phys = cfg.physics;
+  if (phys?.magnets) {
+    MAGNETS.forEach((m) => (m.enabled = false));
+    phys.magnets.forEach((m, idx) => {
+      if (MAGNETS[idx]) {
+        MAGNETS[idx].enabled = !!m.enabled;
+        MAGNETS[idx].radius = m.radius;
+        MAGNETS[idx].strength = m.strength;
+        MAGNETS[idx].center.set(m.center.x, m.center.z);
+      }
+    });
+    createMagnetMarkers();
+  }
+  if (phys?.player) {
+    PLAYER.collider = phys.player.collider || PLAYER.collider;
+    PLAYER.speed = phys.player.speed || PLAYER.speed;
+  }
+  if (phys?.ball) {
+    PHYSICS.minSpeed = phys.ball.minSpeed ?? PHYSICS.minSpeed;
+    PHYSICS.maxSpeed = phys.ball.maxSpeed ?? PHYSICS.maxSpeed;
+    PHYSICS.damping = phys.ball.damping ?? PHYSICS.damping;
+  }
+}
+
 function applyDebugUi() {
   const debugEls = document.querySelectorAll('.debug-only');
   debugEls.forEach((el) => {
@@ -861,28 +893,7 @@ function handleNetMessage(raw) {
         ARENA.ballRadius = msg.payload.arena.ballRadius ?? ballState.radius;
         ballState.radius = ARENA.ballRadius;
       }
-      if (msg.payload?.physics?.magnets) {
-        MAGNETS.forEach((m) => (m.enabled = false));
-        msg.payload.physics.magnets.forEach((m, idx) => {
-          if (MAGNETS[idx]) {
-            MAGNETS[idx].enabled = !!m.enabled;
-            MAGNETS[idx].radius = m.radius;
-            MAGNETS[idx].strength = m.strength;
-            MAGNETS[idx].center.set(m.center.x, m.center.z);
-          }
-        });
-        createMagnetMarkers();
-      }
-      if (msg.payload?.physics?.player) {
-        PLAYER.collider = msg.payload.physics.player.collider || PLAYER.collider;
-        PLAYER.speed = msg.payload.physics.player.speed || PLAYER.speed;
-      }
-      if (msg.payload?.physics?.ball) {
-        const phys = msg.payload.physics.ball;
-        PHYSICS.minSpeed = phys.minSpeed ?? PHYSICS.minSpeed;
-        PHYSICS.maxSpeed = phys.maxSpeed ?? PHYSICS.maxSpeed;
-        PHYSICS.damping = phys.damping ?? PHYSICS.damping;
-      }
+      if (msg.payload?.physics || msg.payload?.config) applyConfigFromServer({ physics: msg.payload.physics, arena: msg.payload.arena });
       return;
     }
     if (msg.type === 'ROOM_STATE') {
@@ -1168,6 +1179,10 @@ function applyNetState() {
   const sentDelta = prev ? Math.max(8, (curr.sentAt || 0) - (prev.sentAt || 0)) : interval;
   const elapsed = now - (curr.recvAt || now);
   const alpha = prev ? THREE.MathUtils.clamp(elapsed / sentDelta, 0, 1.3) : 1;
+
+  if (curr.payload?.config) {
+    applyConfigFromServer(curr.payload.config);
+  }
 
   const lerpVec = (a, b) => {
     const ax = a?.pos?.x ?? a?.x ?? 0;

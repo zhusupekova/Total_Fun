@@ -14,6 +14,7 @@ const READY_DURATION = 2000;
 const RECLAIM_MS = 15000;
 const INPUT_INTERVAL_MS = 33; // ~30 Hz
 const MAX_MSG_PER_SEC = 120;
+const CONFIG_EVERY_TICKS = 120; // send config in snapshot every ~2s at 60Hz
 const MAX_CONN_PER_IP = parseInt(process.env.MAX_CONN_PER_IP || '8', 10);
 const CONN_WINDOW_MS = parseInt(process.env.CONN_WINDOW_MS || '10000', 10);
 
@@ -349,6 +350,12 @@ function snapshot() {
     ball: { pos: { x: q(state.ball.x), z: q(state.ball.z) }, r: ARENA.ballRadius },
     players: connectedPlayers().map((p) => ({ playerId: p.id, side: p.side, pos: { x: q(p.x), z: q(p.z) } })),
   };
+  if (state.tick % CONFIG_EVERY_TICKS === 0) {
+    payload.config = {
+      arena: ARENA,
+      physics: { BALL, PLAYER, MAGNETS: MAGNETS_ENABLED ? MAGNETS : [] },
+    };
+  }
   broadcast({ type: 'SNAPSHOT', t: state.tick, ts, payload });
 }
 
