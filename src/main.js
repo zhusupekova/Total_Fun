@@ -1300,7 +1300,8 @@ function updateHud() {
         matchBanner.style.display = 'block';
       } else if (net.matchState === 'WAITING') {
         const goal = (window.SERVER_CONFIG?.scoreToWin) ? ` | first to ${window.SERVER_CONFIG.scoreToWin}` : '';
-        matchBanner.textContent = `Waiting for players...${goal}`;
+        const timeout = window.SERVER_CONFIG?.roomTimeoutMs ? ` | timeout ${Math.round(window.SERVER_CONFIG.roomTimeoutMs / 1000)}s` : '';
+        matchBanner.textContent = `Waiting for players...${goal}${timeout}`;
         matchBanner.style.display = 'block';
       } else if (net.matchState === 'READY' && readyEndsAt) {
         matchBanner.textContent = `Starting in ${(Math.max(0, readyEndsAt - Date.now()) / 1000).toFixed(1)}s`;
