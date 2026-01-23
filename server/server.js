@@ -49,6 +49,7 @@ const BOT_TOKEN = process.env.BOT_TOKEN || null;
 const AUTH_GRACE_SEC = parseInt(process.env.AUTH_GRACE_SEC || '86400', 10); // 24h by default
 const REQUIRE_AUTH = process.env.REQUIRE_AUTH === 'true';
 const ALLOW_DEBUG = process.env.ALLOW_DEBUG === 'true';
+const ROOM_TIMEOUT_MS = parseInt(process.env.ROOM_TIMEOUT_MS || '0', 10); // 0 = disable
 const MAX_USERNAME = 32;
 const MAX_USERID = 64;
 
@@ -269,6 +270,7 @@ function sendRoomState() {
 function setMatchState(next) {
   if (state.matchState === next) return;
   state.matchState = next;
+  if (next === 'IN_PROGRESS') roomStartedAt = Date.now();
   broadcast({ type: 'MATCH_EVENT', payload: { event: `MATCH_${next}` } });
   if (next === 'FINISHED') resetBall();
 }
@@ -597,6 +599,7 @@ console.log(`WS server listening on :${PORT}`);
 let lastTick = Date.now();
 let lastSnapshot = Date.now();
 let pingCounter = 0;
+let roomStartedAt = Date.now();
 
 setInterval(() => {
   const now = Date.now();
@@ -616,6 +619,13 @@ setInterval(() => {
     broadcast({ type: 'PING', payload: { pingId, ts: pingId } });
   }
   pingCounter += 1;
+
+  if (ROOM_TIMEOUT_MS > 0 && state.matchState === 'IN_PROGRESS') {
+    if (now - roomStartedAt > ROOM_TIMEOUT_MS) {
+      setMatchState('FINISHED');
+      resetBall();
+    }
+  }
 }, 1000 / TICK_RATE);
 
 if (METRICS_INTERVAL_MS > 0) {
