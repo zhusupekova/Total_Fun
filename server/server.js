@@ -1,5 +1,6 @@
 import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
+import pkg from './package.json' assert { type: 'json' };
 import { nanoid } from 'nanoid';
 import crypto from 'crypto';
 
@@ -75,6 +76,7 @@ const httpServer = createServer((req, res) => {
       players: connectedPlayers().length,
       tick: state.tick,
       metrics,
+      version: pkg.version,
     };
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify(payload));
@@ -632,6 +634,7 @@ if (METRICS_INTERVAL_MS > 0) {
   setInterval(() => {
     const uptime = Math.round((Date.now() - metrics.startedAt) / 1000);
     const payload = {
+      version: pkg.version,
       uptime,
       conns: metrics.connectionsTotal,
       msgs: metrics.messagesTotal,
