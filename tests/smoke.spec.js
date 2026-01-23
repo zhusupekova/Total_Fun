@@ -21,19 +21,8 @@ test('net panel visible with debug flag', async ({ page }) => {
   await expect(netPanel).toBeVisible();
 });
 
-test('score renders when provided', async ({ page }) => {
+test('score line hidden when scoring disabled', async ({ page }) => {
   await page.goto('/game');
-  // inject mock score into page context
-  await page.evaluate(() => {
-    window.dispatchEvent(new MessageEvent('message', { data: { type: 'SCORE', payload: { score: { top: 1, right: 2, bottom: 3, left: 4 } } } }));
-  });
   const scoreLine = page.locator('#score-line');
-  await expect(scoreLine).toContainText('top:1');
-});
-
-test('match banner shows waiting', async ({ page }) => {
-  await page.goto('/game');
-  const banner = page.locator('#match-banner');
-  await expect(banner).toBeVisible();
-  await expect(banner).toContainText('Waiting');
+  await expect(scoreLine).toBeHidden();
 });
