@@ -1,6 +1,8 @@
 import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
-import pkg from './package.json' assert { type: 'json' };
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { nanoid } from 'nanoid';
 import crypto from 'crypto';
 
@@ -93,6 +95,11 @@ const httpServer = createServer((req, res) => {
 });
 
 const wss = new WebSocketServer({ server: httpServer, maxPayload: MAX_PAYLOAD });
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const pkgPath = path.join(__dirname, 'package.json');
+const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
 
 const metrics = {
   startedAt: Date.now(),
