@@ -61,7 +61,8 @@ const sockets = new Map(); // ws -> playerId
 const meta = new Map(); // ws -> { handshaked: bool, ip }
 const rate = new Map(); // ws -> { count, ts }
 const connRate = new Map(); // ip -> { count, ts }
-const wss = new WebSocketServer({ port: PORT });
+const MAX_PAYLOAD = parseInt(process.env.MAX_PAYLOAD || '4096', 10);
+const wss = new WebSocketServer({ port: PORT, maxPayload: MAX_PAYLOAD });
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
