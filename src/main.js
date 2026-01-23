@@ -70,11 +70,16 @@ if (tg) {
   try {
     tg.ready();
     tg.expand();
-    const bg = tg.themeParams?.bg_color;
+    const theme = tg.themeParams || {};
+    const bg = theme.bg_color;
     if (bg) {
       document.body.style.backgroundColor = bg;
       document.documentElement.style.backgroundColor = bg;
     }
+    const accent = theme.button_color || '#1ee0d7';
+    document.documentElement.style.setProperty('--tf-accent', accent);
+    const text = theme.text_color || '#e6f2ff';
+    document.documentElement.style.setProperty('--tf-text', text);
   } catch (err) {
     console.warn('Telegram WebApp init failed', err);
   }

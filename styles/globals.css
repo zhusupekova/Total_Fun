@@ -6,6 +6,7 @@ html, body, #__next {
   overflow: hidden;
   background: #0c0f1a;
   font-family: sans-serif;
+  color: var(--tf-text, #e6f2ff);
 }
 
 * {
@@ -69,7 +70,7 @@ html, body, #__next {
   transform: translateX(-50%);
   padding: 10px 14px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #1ee0d7, #4e7bff);
+  background: linear-gradient(135deg, var(--tf-accent, #1ee0d7), #4e7bff);
   color: #0b1220;
   font-weight: 700;
   font-size: 14px;
@@ -121,7 +122,7 @@ html, body, #__next {
   padding: 6px 8px;
   border: 1px solid rgba(255,255,255,0.2);
   border-radius: 8px;
-  background: rgba(154, 232, 255, 0.2);
+  background: var(--tf-accent, rgba(154, 232, 255, 0.2));
   color: #0b1220;
   font-weight: 600;
   cursor: pointer;
