@@ -1400,6 +1400,10 @@ function animate() {
   const dt = Math.min((now - lastTime) / 1000, 0.033);
   lastTime = now;
 
+  if (net.enabled && (!net.connected || (net.matchState && net.matchState !== 'IN_PROGRESS' && net.matchState !== 'READY'))) {
+    input.forward = input.back = input.left = input.right = false;
+  }
+
   if (!input.paused) {
     if (net.enabled) {
       if (net.connected) {
