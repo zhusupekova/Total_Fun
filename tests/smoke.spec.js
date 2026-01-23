@@ -30,3 +30,10 @@ test('score renders when provided', async ({ page }) => {
   const scoreLine = page.locator('#score-line');
   await expect(scoreLine).toContainText('top:1');
 });
+
+test('match banner shows waiting', async ({ page }) => {
+  await page.goto('/game');
+  const banner = page.locator('#match-banner');
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText('Waiting');
+});
