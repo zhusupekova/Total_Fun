@@ -24,6 +24,8 @@ npm run export   # статика в out/
   - `ws=ws://host:port` — включить online режим.
   - `magnets=off` — отключить магнитные зоны (клиент).
   - `debug=1` — показать debug UI (WS панель, текстовые подсказки).
+- Быстрый локальный WS smoke: `npm run smoke:ws:local` (поднимет сервер на 7071, прогонит smoke, остановит сервер).
+- Локальный полный прогон: `npm run test:all` (lint + build + Playwright).
 
 ## Сервер (Node + ws)
 ```
@@ -43,6 +45,7 @@ npm start           # PORT=7071 по умолчанию
 - `ROOM_TIMEOUT_MS` — принудительное завершение матча по времени (0 = выкл).
 - `FINISHED_RESET_MS` — через сколько мс после FINISHED возвращаться в WAITING (default 5000).
 - `MAX_PAYLOAD` — max incoming WS message size in bytes (default 4096).
+- `/health` — JSON статус, uptime, игроки, tick, метрики; периодическое логирование метрик управляется `METRICS_INTERVAL_MS`.
 
 ### Протокол
 - Client→Server: `HELLO { userId?, username?, initData? }`, `INPUT {forward,back,left,right}`, `PONG { pingId, ts }`, `DEBUG { cmd: "RESET_BALL" }`
