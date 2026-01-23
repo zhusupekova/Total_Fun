@@ -7,10 +7,9 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0d111c);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.2));
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.enabled = false;
 app.appendChild(renderer.domElement);
 
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 100);
@@ -20,14 +19,9 @@ camera.lookAt(0, 0, 0);
 const ambient = new THREE.AmbientLight(0x9fb7ff, 0.55);
 scene.add(ambient);
 
-const dir = new THREE.DirectionalLight(0xffffff, 1.25);
+const dir = new THREE.DirectionalLight(0xffffff, 1.05);
 dir.position.set(10, 16, 9);
-dir.castShadow = true;
-dir.shadow.camera.left = -16;
-dir.shadow.camera.right = 16;
-dir.shadow.camera.top = 16;
-dir.shadow.camera.bottom = -16;
-dir.shadow.mapSize.set(1024, 1024);
+dir.castShadow = false;
 scene.add(dir);
 
 const ARENA = { width: 16, height: 10, wallHeight: 1.2, playerDepth: 0.7, ballRadius: 0.5 };
@@ -49,6 +43,9 @@ const MAGNETS = [
   { center: new THREE.Vector2(6.5, 3.5), radius: 2, strength: 4, enabled: true },
   { center: new THREE.Vector2(-6.5, 3.5), radius: 2, strength: 4, enabled: true },
 ];
+const READY_DURATION_MS = 2000;
+let readyEndsAt = null;
+const MAX_RECONNECT_ATTEMPTS = 8;
 const ASSETS = {
   arena: '/assets/arena.glb',
   ball: '/assets/ball.glb',
@@ -65,6 +62,23 @@ let playerFallbackPrefab = null;
 const params = new URLSearchParams(window.location.search);
 const wsUrl = params.get('ws');
 const magnetsEnabled = params.get('magnets') !== 'off';
+const debugUI = params.get('debug') === '1';
+
+// Telegram Mini App bootstrap with graceful fallback
+const tg = window.Telegram?.WebApp;
+if (tg) {
+  try {
+    tg.ready();
+    tg.expand();
+    const bg = tg.themeParams?.bg_color;
+    if (bg) {
+      document.body.style.backgroundColor = bg;
+      document.documentElement.style.backgroundColor = bg;
+    }
+  } catch (err) {
+    console.warn('Telegram WebApp init failed', err);
+  }
+}
 MAGNETS.forEach((m) => { m.enabled = magnetsEnabled; });
 const audioContext = typeof AudioContext !== 'undefined' ? new AudioContext() : null;
 const sfxBuffers = new Map();
@@ -78,6 +92,7 @@ const net = {
   id: null,
   side: null,
   snapshot: null,
+  snapshotBuffer: { prev: null, curr: null },
   lastInput: null,
   reconnectDelay: 1000,
   reconnectTimer: null,
@@ -93,6 +108,9 @@ const net = {
   pingId: 0,
   lastPingTs: null,
   identity: null,
+  manualRetry: false,
+  snapshotIntervalMs: 33,
+  errorMessage: '',
 };
 const gltfLoader = new GLTFLoader();
 const texLoader = new THREE.TextureLoader();
@@ -599,11 +617,29 @@ ballMesh.castShadow = true;
 ballMesh.position.y = 0.5;
 scene.add(ballMesh);
 
-const shadowGeom = new THREE.CircleGeometry(0.8, 28);
-const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, opacity: 0.35, transparent: true });
-const shadowMesh = new THREE.Mesh(shadowGeom, shadowMat);
-shadowMesh.rotation.x = -Math.PI / 2;
-shadowMesh.position.y = 0.001;
+const blobTexture = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const ctx = c.getContext('2d');
+  const grd = ctx.createRadialGradient(128, 128, 10, 128, 128, 120);
+  grd.addColorStop(0, 'rgba(0,0,0,0.35)');
+  grd.addColorStop(1, 'rgba(0,0,0,0.0)');
+  ctx.fillStyle = grd;
+  ctx.beginPath();
+  ctx.arc(128, 128, 128, 0, Math.PI * 2);
+  ctx.fill();
+  return new THREE.CanvasTexture(c);
+})();
+
+function makeBlobShadow(radius = 1) {
+  const mat = new THREE.SpriteMaterial({ map: blobTexture, transparent: true, depthWrite: false });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(radius * 2, radius * 2, 1);
+  sprite.position.set(0, 0.02, 0);
+  return sprite;
+}
+
+const shadowMesh = makeBlobShadow(0.9);
 scene.add(shadowMesh);
 
 function setBallRadiusFromObject(object) {
@@ -696,16 +732,29 @@ function bindNetControls() {
   const btnConnect = document.getElementById('btn-connect');
   const btnDisconnect = document.getElementById('btn-disconnect');
   const btnAudio = document.getElementById('audio-toggle');
+  const btnRetry = document.getElementById('btn-retry');
   if (input && net.wsUrl) input.value = net.wsUrl;
   if (btnConnect) {
     btnConnect.addEventListener('click', () => {
       const url = input?.value?.trim() || net.wsUrl;
+      net.manualRetry = false;
       startNet(url);
     });
   }
   if (btnDisconnect) {
     btnDisconnect.addEventListener('click', () => {
+      net.manualRetry = false;
       stopNet();
+    });
+  }
+  if (btnRetry) {
+    btnRetry.addEventListener('click', () => {
+      const url = input?.value?.trim() || net.wsUrl;
+      net.manualRetry = true;
+      stopNet();
+      net.shouldReconnect = true;
+      startNet(url);
+      net.manualRetry = false;
     });
   }
   if (btnAudio) {
@@ -718,6 +767,15 @@ function bindNetControls() {
     });
     refresh();
   }
+}
+
+function applyDebugUi() {
+  const debugEls = document.querySelectorAll('.debug-only');
+  debugEls.forEach((el) => {
+    el.style.display = debugUI ? '' : 'none';
+  });
+  const netPanel = document.getElementById('net-panel');
+  if (netPanel) netPanel.style.display = debugUI ? 'grid' : 'none';
 }
 
 function resetBall() {
@@ -740,6 +798,13 @@ function scheduleReconnect() {
   const backoff = [1000, 2000, 3000, 5000, 8000];
   const delay = backoff[Math.min(net.reconnectAttempts, backoff.length - 1)];
   net.reconnectAttempts += 1;
+  if (net.reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
+    net.shouldReconnect = false;
+    net.connectionState = 'error';
+    net.error = { code: 'RECONNECT_MAX' };
+    net.errorMessage = 'Max reconnect attempts reached';
+    return;
+  }
   net.connectionState = 'reconnecting';
   if (net.reconnectTimer) clearTimeout(net.reconnectTimer);
   net.reconnectTimer = setTimeout(() => connectWebSocket(net.wsUrl), delay);
@@ -763,7 +828,10 @@ function handleNetMessage(raw) {
       net.side = msg.payload?.side;
       net.matchState = msg.payload?.matchState || net.matchState;
       if (msg.payload?.tickRate) net.tickRate = msg.payload.tickRate;
-      if (msg.payload?.snapshotRate) net.snapshotRate = msg.payload.snapshotRate;
+      if (msg.payload?.snapshotRate) {
+        net.snapshotRate = msg.payload.snapshotRate;
+        net.snapshotIntervalMs = 1000 / msg.payload.snapshotRate;
+      }
       if (msg.payload?.arena) {
         ARENA.width = msg.payload.arena.width ?? ARENA.width;
         ARENA.height = msg.payload.arena.height ?? ARENA.height;
@@ -788,6 +856,8 @@ function handleNetMessage(raw) {
         clearPlayers();
         net.hasSnapshot = true;
       }
+      net.snapshotBuffer.prev = net.snapshotBuffer.curr;
+      net.snapshotBuffer.curr = { t: msg.t, payload: msg.payload, recvAt: performance.now(), sentAt: msg.ts || performance.now() };
       net.snapshot = msg;
       return;
     }
@@ -799,6 +869,11 @@ function handleNetMessage(raw) {
     }
     if (msg.type === 'MATCH_EVENT') {
       net.matchState = msg.payload?.event?.replace('MATCH_', '') || net.matchState;
+      if (net.matchState === 'READY') {
+        readyEndsAt = Date.now() + READY_DURATION_MS;
+      } else {
+        readyEndsAt = null;
+      }
       return;
     }
   } catch (err) {
@@ -821,7 +896,15 @@ function connectWebSocket(url) {
   net.ws.addEventListener('open', () => {
     net.connectionState = 'handshake';
     net.reconnectAttempts = 0;
-    const hello = { type: 'HELLO', payload: { userId: net.identity?.userId, username: net.identity?.username } };
+    net.error = null;
+    const hello = {
+      type: 'HELLO',
+      payload: {
+        userId: net.identity?.userId,
+        username: net.identity?.username,
+        initData: window?.Telegram?.WebApp?.initData || null,
+      },
+    };
     net.ws.send(JSON.stringify(hello));
   });
   net.ws.addEventListener('message', (evt) => handleNetMessage(evt));
@@ -831,7 +914,7 @@ function connectWebSocket(url) {
     net.side = null;
     net.snapshot = null;
     net.hasSnapshot = false;
-    if (net.shouldReconnect) scheduleReconnect();
+    if (net.shouldReconnect && !net.manualRetry) scheduleReconnect();
   });
   net.ws.addEventListener('error', (e) => {
     console.warn('[net] error', e);
@@ -839,7 +922,8 @@ function connectWebSocket(url) {
     net.connectionState = 'error';
     net.snapshot = null;
     net.hasSnapshot = false;
-    if (net.shouldReconnect) scheduleReconnect();
+    net.errorMessage = e?.message || '';
+    if (net.shouldReconnect && !net.manualRetry) scheduleReconnect();
   });
 }
 
@@ -1029,20 +1113,61 @@ function syncNetPlayers(snapshotPlayers) {
 }
 
 function applyNetState() {
-  if (!net.snapshot) return;
-  const snap = net.snapshot.payload || net.snapshot;
-  const { ball, players: plist } = snap;
-  syncNetPlayers(plist || []);
-  if (ball) {
-    if (typeof ball.r === 'number' && ball.r > 0.01) {
-      ballState.radius = ball.r;
+  const curr = net.snapshotBuffer.curr;
+  if (!curr) return;
+  const prev = net.snapshotBuffer.prev;
+  const now = performance.now();
+  const interval = net.snapshotIntervalMs || 33;
+  const sentDelta = prev ? Math.max(8, (curr.sentAt || 0) - (prev.sentAt || 0)) : interval;
+  const elapsed = now - (curr.recvAt || now);
+  const alpha = prev ? THREE.MathUtils.clamp(elapsed / sentDelta, 0, 1.3) : 1;
+
+  const lerpVec = (a, b) => {
+    const ax = a?.pos?.x ?? a?.x ?? 0;
+    const az = a?.pos?.z ?? a?.z ?? 0;
+    const bx = b?.pos?.x ?? b?.x ?? ax;
+    const bz = b?.pos?.z ?? b?.z ?? az;
+    return { x: THREE.MathUtils.lerp(ax, bx, alpha), z: THREE.MathUtils.lerp(az, bz, alpha) };
+  };
+
+  const interpPlayers = [];
+  const currPlayers = curr.payload?.players || [];
+  const prevPlayers = prev?.payload?.players || [];
+  currPlayers.forEach((cp) => {
+    const pid = cp.playerId || cp.id;
+    const prevP = prevPlayers.find((p) => (p.playerId || p.id) === pid) || cp;
+    interpPlayers.push({
+      playerId: pid,
+      side: cp.side,
+      pos: lerpVec(prevP.pos || prevP, cp.pos || cp),
+    });
+  });
+  syncNetPlayers(interpPlayers);
+
+  const cBall = curr.payload?.ball || curr.payload;
+  if (cBall) {
+    const pBall = prev?.payload?.ball || cBall;
+    if (typeof cBall.r === 'number' && cBall.r > 0.01) {
+      ballState.radius = cBall.r;
     }
-    const pos = ball.pos || ball;
-    ballMesh.position.x = THREE.MathUtils.lerp(ballMesh.position.x, pos.x, 0.4);
-    ballMesh.position.z = THREE.MathUtils.lerp(ballMesh.position.z, pos.z, 0.4);
+    const pos = lerpVec(pBall, cBall);
+    ballMesh.position.x = pos.x;
+    ballMesh.position.z = pos.z;
     ballMesh.position.y = ballState.radius;
+    shadowMesh.position.x = pos.x;
+    shadowMesh.position.z = pos.z;
+    shadowMesh.scale.set(ballState.radius * 2, ballState.radius * 2, 1);
+  }
+
+  if (net.matchState && net.matchState !== 'IN_PROGRESS' && net.matchState !== 'READY') {
+    players.forEach((p) => {
+      const base = playerDefaultPosition(p.side);
+      p.mesh.position.lerp(new THREE.Vector3(base.x, 0.5, base.z), 0.35);
+    });
+    ballMesh.position.lerp(new THREE.Vector3(0, ballState.radius, 0), 0.3);
     shadowMesh.position.x = ballMesh.position.x;
     shadowMesh.position.z = ballMesh.position.z;
+    shadowMesh.scale.set(ballState.radius * 2, ballState.radius * 2, 1);
   }
 }
 
@@ -1050,7 +1175,7 @@ function sendNetInput() {
   if (!net.enabled || !net.connected || !net.ws || net.ws.readyState !== WebSocket.OPEN) return;
   if (net.matchState && net.matchState !== 'IN_PROGRESS' && net.matchState !== 'READY') return;
   const now = performance.now();
-  if (now - net.lastInputSentAt < 33) return;
+  if (now - net.lastInputSentAt < 50) return; // ~20 Hz cap client-side
   const payload = { type: 'INPUT', payload: { forward: input.forward, back: input.back, left: input.left, right: input.right } };
   const serialized = JSON.stringify(payload);
   if (serialized !== net.lastInput) {
@@ -1063,45 +1188,76 @@ function sendNetInput() {
 function updateHud() {
   const netEl = document.getElementById('net-status');
   const matchEl = document.getElementById('match-status');
+  const errEl = document.getElementById('error-banner');
   if (!netEl) return;
   if (!net.enabled) {
     netEl.textContent = 'Mode: offline demo (local physics + bots)';
     if (matchEl) matchEl.textContent = 'Match: OFFLINE';
+    if (errEl) errEl.style.display = 'none';
   } else if (net.connected) {
     const ping = net.latencyMs != null ? `, ping ~${net.latencyMs.toFixed(0)}ms` : '';
     netEl.textContent = `Online (${net.wsUrl}) — player ${net.id ?? '?'} side ${net.side ?? '?'} — state ${net.matchState}${ping}`;
-    if (matchEl) matchEl.textContent = `Match state: ${net.matchState || 'unknown'}`;
+    let suffix = '';
+    if (net.matchState === 'READY' && readyEndsAt) {
+      const left = Math.max(0, readyEndsAt - Date.now());
+      suffix = ` — start in ${(left / 1000).toFixed(1)}s`;
+    }
+    if (matchEl) matchEl.textContent = `Match state: ${net.matchState || 'unknown'}${suffix}`;
+    if (errEl) errEl.style.display = 'none';
   } else {
-    const err = net.error?.code ? ` error: ${net.error.code}` : '';
-    netEl.textContent = `Connecting to ${net.wsUrl || ''}${err}`;
-    if (matchEl) matchEl.textContent = `Match state: ${net.matchState || 'connecting'}`;
+    const errCode = net.error?.code || net.error?.reason;
+    const errText = errCode ? ` — error: ${errCode}` : (net.errorMessage ? ` — ${net.errorMessage}` : '');
+    const state = net.connectionState || 'connecting';
+    netEl.textContent = `${state.toUpperCase()} to ${net.wsUrl || ''}${errText} (tap Connect to retry)`;
+    if (matchEl) matchEl.textContent = `Match state: ${net.matchState || state}`;
+    if (errEl) {
+      const message = errCode || net.errorMessage;
+      if (message) {
+        errEl.textContent = message;
+        errEl.style.display = 'block';
+      } else {
+        errEl.style.display = 'none';
+      }
+    }
   }
 }
 
 function updatePlayersList() {
   const listEl = document.getElementById('players-list');
   if (!listEl) return;
+
+  const renderRow = (name, status) => {
+    const row = document.createElement('div');
+    row.className = 'player-row';
+    const nameEl = document.createElement('span');
+    nameEl.textContent = name;
+    const statusEl = document.createElement('span');
+    statusEl.textContent = status || '';
+    row.append(nameEl, statusEl);
+    listEl.appendChild(row);
+  };
+
+  listEl.replaceChildren();
+
   if (net.enabled && net.players.size) {
-    listEl.innerHTML = [...net.players.values()]
-      .map((p) => {
-        const name = p.playerId === net.id ? `${p.username || p.playerId} (you)` : (p.username || p.playerId);
-        const status = p.connected ? p.side : `${p.side} (dc)`;
-        return `<div class="player-row"><span>${name}</span><span>${status}</span></div>`;
-      })
-      .join('');
+    net.players.forEach((p) => {
+      const name = p.playerId === net.id ? `${p.username || p.playerId} (you)` : (p.username || p.playerId);
+      const status = p.connected ? p.side : `${p.side} (dc)`;
+      renderRow(name, status);
+    });
     return;
   }
+
   if (!players.length) {
-    listEl.innerHTML = '<div class="player-row"><span>No players</span><span></span></div>';
+    renderRow('No players', '');
     return;
   }
-  listEl.innerHTML = players
-    .map((p) => {
-      const name = p.isLocal ? `${p.id || 'you'} (you)` : p.id || 'player';
-      const side = p.side || '-';
-      return `<div class="player-row"><span>${name}</span><span>${side}</span></div>`;
-    })
-    .join('');
+
+  players.forEach((p) => {
+    const name = p.isLocal ? `${p.id || 'you'} (you)` : p.id || 'player';
+    const side = p.side || '-';
+    renderRow(name, side);
+  });
 }
 
 function collideBallWithWalls() {
@@ -1218,6 +1374,7 @@ function animate() {
 animate();
 bindTouchControls();
 bindNetControls();
+applyDebugUi();
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;

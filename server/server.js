@@ -1,5 +1,6 @@
 import { WebSocketServer } from 'ws';
 import { nanoid } from 'nanoid';
+import crypto from 'crypto';
 
 const PORT = process.env.PORT || 7071;
 const ROOM_ID = 'default';
@@ -10,6 +11,9 @@ const SNAPSHOT_INTERVAL = 1000 / SNAPSHOT_RATE;
 const READY_DURATION = 2000;
 const RECLAIM_MS = 15000;
 const INPUT_INTERVAL_MS = 33; // ~30 Hz
+const MAX_MSG_PER_SEC = 120;
+const MAX_CONN_PER_IP = parseInt(process.env.MAX_CONN_PER_IP || '8', 10);
+const CONN_WINDOW_MS = parseInt(process.env.CONN_WINDOW_MS || '10000', 10);
 
 const ARENA = { width: 16, height: 10, playerDepth: 0.7, ballRadius: 0.5 };
 const PLAYER = { speed: 6, collider: { x: 2.2, z: 0.7 } };
@@ -40,6 +44,10 @@ const MAGNETS = [
   { id: 'sw', center: { x: -6.5, z: 3.5 }, radius: 2, strength: 4, type: 'pull', enabled: true },
 ];
 
+const BOT_TOKEN = process.env.BOT_TOKEN || null;
+const AUTH_GRACE_SEC = parseInt(process.env.AUTH_GRACE_SEC || '86400', 10); // 24h by default
+const REQUIRE_AUTH = process.env.REQUIRE_AUTH === 'true';
+
 const state = {
   players: new Map(), // id -> {id,userId,username,side,x,z,input,lastInputAt,ws,connected,disconnectedAt,ping}
   tick: 0,
@@ -50,6 +58,9 @@ const state = {
 };
 
 const sockets = new Map(); // ws -> playerId
+const meta = new Map(); // ws -> { handshaked: bool, ip }
+const rate = new Map(); // ws -> { count, ts }
+const connRate = new Map(); // ip -> { count, ts }
 const wss = new WebSocketServer({ port: PORT });
 
 function clamp(value, min, max) {
@@ -227,6 +238,7 @@ function setMatchState(next) {
   if (state.matchState === next) return;
   state.matchState = next;
   broadcast({ type: 'MATCH_EVENT', payload: { event: `MATCH_${next}` } });
+  if (next === 'FINISHED') resetBall();
 }
 
 function resetBall() {
@@ -238,7 +250,7 @@ function resetBall() {
 
 function maybeStartMatch() {
   const active = connectedPlayers().length;
-  if (active === MAX_PLAYERS && state.matchState === 'WAITING') {
+  if (active === MAX_PLAYERS && (state.matchState === 'WAITING' || state.matchState === 'FINISHED')) {
     state.readyUntil = Date.now() + READY_DURATION;
     setMatchState('READY');
   }
@@ -247,7 +259,7 @@ function maybeStartMatch() {
 function maybeFinishMatch() {
   const active = connectedPlayers().length;
   if (active < MAX_PLAYERS && (state.matchState === 'READY' || state.matchState === 'IN_PROGRESS')) {
-    setMatchState('WAITING');
+    setMatchState(active === 0 ? 'WAITING' : 'FINISHED');
     state.readyUntil = null;
     resetBall();
   }
@@ -294,12 +306,14 @@ function tick(dt) {
 }
 
 function snapshot() {
+  const q = (v) => Math.round(v * 1000) / 1000;
+  const ts = Date.now();
   const payload = {
     matchState: state.matchState,
-    ball: { pos: { x: state.ball.x, z: state.ball.z }, vel: { x: state.ball.vx, z: state.ball.vz }, r: ARENA.ballRadius },
-    players: connectedPlayers().map((p) => ({ playerId: p.id, side: p.side, pos: { x: p.x, z: p.z } })),
+    ball: { pos: { x: q(state.ball.x), z: q(state.ball.z) }, r: ARENA.ballRadius },
+    players: connectedPlayers().map((p) => ({ playerId: p.id, side: p.side, pos: { x: q(p.x), z: q(p.z) } })),
   };
-  broadcast({ type: 'SNAPSHOT', t: state.tick, payload });
+  broadcast({ type: 'SNAPSHOT', t: state.tick, ts, payload });
 }
 
 function sendWelcome(ws, player) {
@@ -321,9 +335,45 @@ function makeError(code, message) {
   return { type: 'ERROR', payload: { code, message } };
 }
 
+function verifyTelegramInitData(initDataRaw) {
+  if (!BOT_TOKEN) return { ok: !REQUIRE_AUTH, reason: 'NO_BOT_TOKEN' };
+  if (!initDataRaw) return { ok: false, reason: 'MISSING_INITDATA' };
+  try {
+    const params = new URLSearchParams(initDataRaw);
+    const hash = params.get('hash');
+    if (!hash) return { ok: false, reason: 'NO_HASH' };
+    params.delete('hash');
+    const pairs = [];
+    params.forEach((value, key) => {
+      pairs.push(`${key}=${value}`);
+    });
+    pairs.sort();
+    const dataCheckString = pairs.join('\n');
+    const secret = crypto.createHash('sha256').update(BOT_TOKEN).digest();
+    const hmac = crypto.createHmac('sha256', secret).update(dataCheckString).digest('hex');
+    if (hmac !== hash) return { ok: false, reason: 'BAD_HASH' };
+    const authDate = Number(params.get('auth_date') || 0);
+    if (authDate && (Date.now() / 1000 - authDate > AUTH_GRACE_SEC)) return { ok: false, reason: 'STALE_AUTH' };
+    const userRaw = params.get('user');
+    const user = userRaw ? JSON.parse(userRaw) : null;
+    return { ok: true, user };
+  } catch (err) {
+    return { ok: false, reason: 'PARSE_ERROR' };
+  }
+}
+
 function handleHello(ws, payload) {
-  const userId = payload?.userId ? String(payload.userId) : `guest-${nanoid(6)}`;
-  const username = payload?.username?.slice?.(0, 32) || 'Player';
+  const initDataRaw = payload?.initData;
+  const auth = verifyTelegramInitData(initDataRaw);
+  if (!auth.ok) {
+    send(ws, makeError('BAD_AUTH', auth.reason || 'Auth failed'));
+    ws.close();
+    return;
+  }
+
+  const tgUser = auth.user;
+  const userId = tgUser?.id ? String(tgUser.id) : (payload?.userId ? String(payload.userId) : `guest-${nanoid(6)}`);
+  const username = tgUser?.username || payload?.username?.slice?.(0, 32) || 'Player';
   const existing = [...state.players.values()].find((p) => p.userId === userId);
   const slotAvailable = connectedPlayers().length < MAX_PLAYERS || (existing && !existing.connected);
 
@@ -365,10 +415,17 @@ function handleInput(ws, payload) {
   if (!id) return;
   const player = state.players.get(id);
   if (!player || !player.connected) return;
+  if (state.matchState !== 'READY' && state.matchState !== 'IN_PROGRESS') return;
   const now = Date.now();
   if (now - player.lastInputAt < INPUT_INTERVAL_MS) return;
   player.lastInputAt = now;
-  player.input = payload || {};
+  const input = {
+    forward: !!payload?.forward,
+    back: !!payload?.back,
+    left: !!payload?.left,
+    right: !!payload?.right,
+  };
+  player.input = input;
 }
 
 function handlePong(ws, payload) {
@@ -382,6 +439,19 @@ function handlePong(ws, payload) {
 }
 
 function handleMessage(ws, raw) {
+  const now = Date.now();
+  const bucket = rate.get(ws) || { count: 0, ts: now };
+  if (now - bucket.ts >= 1000) {
+    bucket.count = 0;
+    bucket.ts = now;
+  }
+  bucket.count += 1;
+  rate.set(ws, bucket);
+  if (bucket.count > MAX_MSG_PER_SEC) {
+    send(ws, makeError('RATE_LIMIT', 'Too many messages'));
+    return;
+  }
+
   let msg;
   try {
     msg = JSON.parse(raw.toString());
@@ -393,14 +463,22 @@ function handleMessage(ws, raw) {
   switch (msg.type) {
     case 'HELLO':
       handleHello(ws, msg.payload);
+      meta.set(ws, { handshaked: true });
       break;
     case 'INPUT':
+      if (!meta.get(ws)?.handshaked) {
+        send(ws, makeError('BAD_ORDER', 'Send HELLO first'));
+        ws.close();
+        return;
+      }
       handleInput(ws, msg.payload);
       break;
     case 'PONG':
+      if (!meta.get(ws)?.handshaked) return;
       handlePong(ws, msg.payload);
       break;
     case 'DEBUG':
+      if (!meta.get(ws)?.handshaked) return;
       if (msg.payload?.cmd === 'RESET_BALL') resetBall();
       break;
     default:
@@ -411,6 +489,7 @@ function handleMessage(ws, raw) {
 function disconnect(ws) {
   const id = sockets.get(ws);
   sockets.delete(ws);
+  meta.delete(ws);
   if (!id) return;
   const player = state.players.get(id);
   if (!player) return;
@@ -421,7 +500,23 @@ function disconnect(ws) {
   maybeFinishMatch();
 }
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  const ip = req?.socket?.remoteAddress || 'unknown';
+  const now = Date.now();
+  const bucket = connRate.get(ip) || { count: 0, ts: now };
+  if (now - bucket.ts > CONN_WINDOW_MS) {
+    bucket.count = 0;
+    bucket.ts = now;
+  }
+  bucket.count += 1;
+  connRate.set(ip, bucket);
+  if (bucket.count > MAX_CONN_PER_IP) {
+    send(ws, makeError('RATE_CONN', 'Too many connections from IP'));
+    ws.close();
+    return;
+  }
+
+  meta.set(ws, { handshaked: false, ip });
   ws.on('message', (data) => handleMessage(ws, data));
   ws.on('close', () => disconnect(ws));
   ws.on('error', () => disconnect(ws));

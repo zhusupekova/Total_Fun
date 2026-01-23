@@ -22,6 +22,7 @@ html, body, #__next {
   height: 100%;
   position: relative;
   touch-action: none;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
 #hud {
@@ -42,6 +43,24 @@ html, body, #__next {
 #hud code { color: #ffd66b; }
 #hud .row { margin-bottom: 4px; }
 #hud .row:last-child { margin-bottom: 0; }
+
+#error-banner {
+  position: absolute;
+  top: calc(58px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 240px;
+  max-width: 420px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(255, 77, 77, 0.9);
+  color: #fff9f5;
+  font-size: 13px;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  display: none;
+  z-index: 10;
+}
 
 #audio-toggle {
   margin-top: 6px;

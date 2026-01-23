@@ -1,68 +1,59 @@
 # Total_Fun
 
-Total_Fun — MVP 3D PvP игра для Telegram Mini Apps: статичная арена на 4 игроков, сервер-авторитативная физика мяча, mobile-first WebView.
-
-## Статус репозитория
-- Stage 1: офлайн-стенд на Three.js для сцены и кастомной плоской физики мяча (текущая точка входа).
-- Stage 3: черновик WebSocket-сервера (Node.js + `ws`) и протокол клиента, чтобы перейти к real-time на 4 игроков.
-- Материалы: `public/assets/` для GLB (плейсхолдеры), `docs/references/` для визуальных рефов, `docs/brief/` для ТЗ (docx), PDF-версия ТЗ в корне.
-
-## Структура
-- `pages/game.jsx` — клиент Next.js (SSR выключен) для запуска сцены; `src/main.js` — сцена/физика/HUD (используется как клиентский модуль).
-- `server/` — WS-сервер (Node.js + `ws`).
-- `public/assets/` — ожидаемые GLB (`arena.glb`, `player.glb`, `ball.glb`, варианты персонажей); подхватываются автоматически, доступны по пути `/assets/...`.
-- `docs/brief/` — файлы ТЗ (docx); PDF-версия (`ТЕХНИЧЕСКОЕ ЗАДАНИЕ.pdf`) лежит в корне.
-- `docs/references/` — визуальные референсы (арена, персонажи, UI, примеры).
-- `docs/characters.md` — требования к экспортам GLB (pivot, масштаб, ориентация) и список персонажей.
-- `tools/` — вспомогательные скрипты (например, генератор плейсхолдеров).
+MVP 3D PvP игра для Telegram Mini Apps: статичная арена на 4 игроков, сервер-авторитативная физика мяча, mobile-first WebView. Текущее состояние: готов офлайн стенд и черновой online (WS) режим с авторизацией по initData, антиспам и квоты подключений.
 
 ## Требования
-- Node.js 18+ для сервера и клиентской сборки.
-- npm (или pnpm/yarn по желанию).
-- Любой статический сервер для запуска стенда Stage 1.
+- Node.js 18+
+- npm
 
-## Запуск
-
-### Stage 1 (scene + physics sandbox, офлайн)
-Минимальный стенд на Three.js для отладки арены и мяча без сети. Клиент на Next.js, страница `/game`.
-
-- `pages/game.jsx` + `src/main.js` — статичная арена, 4 игрока (один локальный, три бота), мяч с кастомной 2D-физикой.
-- Управление: `W/S/A/D` — движение локального игрока по своей стороне; `Space` — пауза; `R` — сброс мяча; на мобайле — экранные стрелки. В сетевом режиме ввод идёт в WS.
-- Коллизии: отражение от стен, от игроков, ограничение скорости, лёгкое затухание; мяч не прыгает, есть blob-тень.
-- HUD: сетевой статус (пинг), панель вверху справа для Connect/Disconnect и список игроков.
-
-Локальный запуск (Next.js dev):
-
+## Клиент (Next.js)
+- Страница `/game` (SSR off). Запуск dev:
 ```bash
 npm install
 npm run dev
 # открыть http://localhost:3000/game
 ```
+- Параметры query:
+  - `ws=ws://host:port` — включить online режим.
+  - `magnets=off` — отключить магнитные зоны (клиент).
+  - `debug=1` — показать debug UI (WS панель, текстовые подсказки).
 
-### Stage 3 (WS сервер, server-authoritative)
-Черновик real-time сервера для 4 игроков: симуляция мяча/столкновений, рассылка снапшотов, приём ввода.
-
-- Код: `server/` (Node.js + `ws`, 60 FPS тик).
-- Протокол: см. `server/README.md` (`HELLO`/`WELCOME`, `INPUT`, `SNAPSHOT`, `PING/PONG`, `ROOM_STATE`, ошибки `ROOM_FULL/BAD_HELLO/BAD_INPUT`).
-- Запуск:
-
-```bash
+## Сервер (Node + ws)
+```
 cd server
 npm install
-npm start # PORT=7071 по умолчанию, MAGNETS=off отключит магнитные зоны
+npm start           # PORT=7071 по умолчанию
 ```
+### Env
+- `PORT` — порт WS сервера.
+- `MAGNETS=off` — отключить магнитные зоны.
+- `BOT_TOKEN` — токен Telegram бота для проверки initData.
+- `REQUIRE_AUTH=true` — требовать валидный initData (prod).
+- `AUTH_GRACE_SEC` — TTL auth_date, по умолчанию 86400.
+- `MAX_MSG_PER_SEC` — лимит входящих сообщений (120).
+- `MAX_CONN_PER_IP` / `CONN_WINDOW_MS` — квота подключений с IP (8 / 10000).
 
-- Клиент Stage 1 может подключиться через query `?ws=ws://localhost:7071`; без параметра остаётся офлайн-демо.
-- Быстрый WS-smoke: `npm run smoke:ws -- --url=ws://localhost:7071` (должен быть запущен сервер).
+### Протокол
+- Client→Server: `HELLO { userId?, username?, initData? }`, `INPUT {forward,back,left,right}`, `PONG { pingId, ts }`, `DEBUG { cmd: "RESET_BALL" }`
+- Server→Client: `WELCOME { playerId, side, roomId, tickRate, snapshotRate, matchState, arena }`, `ROOM_STATE`, `SNAPSHOT { t, ts, payload }`, `PING`, `ERROR { code, message }`, `MATCH_EVENT { event: MATCH_READY|MATCH_IN_PROGRESS|MATCH_WAITING|MATCH_FINISHED }`
 
-## Референсы и ассеты
-- Визуальные рефы: `docs/references/` (арена, персонажи, UI, примеры).
-- `docs/characters.md` — требования к экспортам GLB (pivot, масштаб, ориентация) и список персонажей.
-- При появлении финальных моделей (`arena.glb`, `player.glb`, `ball.glb`) положить их в `assets/` — они автоматически подхватятся вместо примитивов (см. `assets/README.md`).
+## Состояния
+- Матч: WAITING → READY (2s) → IN_PROGRESS → FINISHED; при недоборе игроков возвращается в WAITING/FINISHED.
+- Ограничение: максимум 4 игрока, 5-й получает ROOM_FULL.
 
-## План MVP (по ТЗ)
-- Цель: рабочий MVP на 4 игроков в real-time, статичная 3D-локация (ринг), персонажи без вращения, мяч с плоской кастомной физикой, стабильный FPS в Telegram WebView.
-- Этап 1 — сцена и физика: размеры ринга и зон, офлайн-стенд, кастомная 2D-физика мяча. (Готово в прототипе.)
-- Этап 2 — контент и визуал: финальные low-poly модели персонажей/арены/мяча, базовый UI-оверлей, оптимизация под мобильный WebView.
-- Этап 3 — сеть и интеграция TMA: WebSocket (server-authoritative), идентификация по Telegram ID, HUD со статусом сети/пинга, тесты на iOS/Android WebView.
-- Вне MVP: матчмейкинг/рейтинги/прогрессия, тяжёлые VFX и сложные анимации, мета-игра и монетизация.
+## Ассеты
+- Положить GLB в `public/assets`: `arena.glb`, `ball.glb`, `player_cat.glb`, `player_dog.glb`, `player_duck.glb`, `player_pigeon.glb` (или `player.glb` как фолбек). Pivot (0,0,0), ширина ~2.2, глубина ~0.7.
+
+## Безопасность / анти-чит
+- initData проверяется HMAC (если задан BOT_TOKEN), в prod ставить REQUIRE_AUTH=true.
+- Rate limit: входящие сообщения 120/сек; квота подключений per IP (по умолчанию 8 за 10s).
+- INPUT принимается только в READY/IN_PROGRESS; сервер авторитетен по физике.
+
+## Известные ограничения
+- Нет финального прод-деплоя в README для TMA (нужен статики билд Next + hosting под https).
+- UI ошибок минимальный, матчмейкинга нет (single room).
+
+## Быстрые проверки
+- Offline: `npm run dev` и открыть `/game` без ws.
+- Online: запустить сервер и подключить `/game?ws=ws://localhost:7071&debug=1`.
+- Smoke WS: `npm run smoke:ws -- --url=ws://localhost:7071`.
