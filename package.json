@@ -12,7 +12,8 @@
     "test:e2e": "playwright test",
     "lint": "next lint",
     "format": "prettier --write .",
-    "server:start": "node server/server.js"
+    "server:start": "node server/server.js",
+    "test:all": "npm run lint && npm run build && npm run test:e2e"
   },
   "dependencies": {
     "next": "^14.2.35",

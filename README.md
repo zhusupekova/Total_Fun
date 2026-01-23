@@ -68,3 +68,4 @@ npm start           # PORT=7071 по умолчанию
 - Offline: `npm run dev` и открыть `/game` без ws.
 - Online: запустить сервер и подключить `/game?ws=ws://localhost:7071&debug=1`.
 - Smoke WS: `npm run smoke:ws -- --url=ws://localhost:7071`.
+- CI локальный: `npm run test:all` (lint + build + Playwright).
