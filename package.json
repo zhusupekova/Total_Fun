@@ -9,7 +9,8 @@
     "export": "next export",
     "build:assets": "node tools/generate_placeholders.js",
     "smoke:ws": "node tools/ws_smoke.js",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "lint": "next lint"
   },
   "dependencies": {
     "next": "^14.2.3",

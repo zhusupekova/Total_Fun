@@ -17,10 +17,5 @@ jobs:
           cache: 'npm'
       - name: Install deps
         run: npm ci
-      - name: ESLint (if config present)
-        run: |
-          if [ -f .eslintrc.js ] || [ -f .eslintrc.cjs ] || [ -f .eslintrc.json ]; then
-            npx eslint .
-          else
-            echo "No ESLint config, skipping";
-          fi
+      - name: ESLint
+        run: npm run lint
