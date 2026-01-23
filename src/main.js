@@ -117,6 +117,7 @@ const net = {
   manualRetry: false,
   snapshotIntervalMs: 33,
   errorMessage: '',
+  score: {},
 };
 const gltfLoader = new GLTFLoader();
 const texLoader = new THREE.TextureLoader();
@@ -908,6 +909,7 @@ function handleNetMessage(raw) {
     if (msg.type === 'SNAPSHOT') {
       net.matchState = msg.payload?.matchState || net.matchState;
       net.matchReason = msg.payload?.matchReason || null;
+      net.score = msg.payload?.score || net.score;
       if (!net.hasSnapshot) {
         clearPlayers();
         net.hasSnapshot = true;
@@ -1254,6 +1256,7 @@ function updateHud() {
   const errEl = document.getElementById('error-banner');
   const cta = document.getElementById('cta-retry');
   const matchBanner = document.getElementById('match-banner');
+  const scoreEl = document.getElementById('score-line');
   if (!netEl) return;
   const hideBanner = () => { if (matchBanner) matchBanner.style.display = 'none'; };
   if (!net.enabled) {
@@ -1261,6 +1264,7 @@ function updateHud() {
     if (matchEl) matchEl.textContent = 'Match: OFFLINE';
     if (errEl) errEl.style.display = 'none';
     if (cta) cta.style.display = 'none';
+    if (scoreEl) scoreEl.textContent = '';
     hideBanner();
   } else if (net.connected) {
     const ping = net.latencyMs != null ? `, ping ~${net.latencyMs.toFixed(0)}ms` : '';
@@ -1274,6 +1278,10 @@ function updateHud() {
     if (matchEl) matchEl.textContent = `Match state: ${net.matchState || 'unknown'}${suffix}`;
     if (errEl) errEl.style.display = 'none';
     if (cta) cta.style.display = 'none';
+    if (scoreEl) {
+      const s = net.score || {};
+      scoreEl.textContent = `Score — top:${s.top ?? 0} right:${s.right ?? 0} bottom:${s.bottom ?? 0} left:${s.left ?? 0}`;
+    }
     if (matchBanner) {
       if (net.matchState === 'FINISHED') {
         matchBanner.textContent = `Match finished${net.matchReason ? `: ${net.matchReason}` : ''}`;
@@ -1306,6 +1314,7 @@ function updateHud() {
     if (cta) {
       cta.style.display = errCode === 'RECONNECT_MAX' ? 'block' : 'none';
     }
+    if (scoreEl) scoreEl.textContent = '';
     hideBanner();
   }
 }

@@ -23,6 +23,7 @@ function GameView() {
         <div className="row debug-only">Stage 1: arena + custom light physics (optional WS)</div>
         <div className="row" id="net-status" />
         <div className="row" id="match-status" />
+        <div className="row" id="score-line" />
         <button id="audio-toggle">Sound: on</button>
       </div>
       <div id="error-banner" />
