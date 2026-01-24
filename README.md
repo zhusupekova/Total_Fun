@@ -15,8 +15,7 @@ npm run dev
 ```
 - Прод сборка (статический экспорт):
 ```bash
-npm run build
-npm run export   # статика в out/
+npm run build    # статика в out/
 ```
 - Для хостинга в TMA отдавайте содержимое `out/` по HTTPS, укажите URL в BotFather (Web App).
 - E2E smoke (Playwright): запустите dev-сервер и в другом терминале `npm run test:e2e` (BASE_URL можно переопределить).

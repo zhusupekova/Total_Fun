@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "export": "next export",
+    "export": "next build",
     "build:assets": "node tools/generate_placeholders.js",
     "smoke:ws": "node tools/ws_smoke.js",
     "smoke:ws:local": "sh -c \"cd server && PORT=7071 node server.js >/tmp/total_fun_ws.log 2>&1 & pid=$!; sleep 2; node ../tools/ws_smoke.js --url=ws://localhost:7071; kill $pid\"",

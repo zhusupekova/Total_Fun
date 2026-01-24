@@ -48,7 +48,6 @@ CMD ["node", "server.js"]
 ```
 npm install
 npm run build
-npm run export   # статика в out/
 ```
 2. Раздайте содержимое `out/` по HTTPS (например, Nginx/Caddy/Cloudflare Pages/Vercel). В Telegram BotFather укажите URL на `out/` как Web App.
 3. Запуск стенда локально: `npm run dev` и открыть `/game`.
