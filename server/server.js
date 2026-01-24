@@ -96,6 +96,9 @@ const httpServer = createServer((req, res) => {
 });
 
 const wss = new WebSocketServer({ server: httpServer, maxPayload: MAX_PAYLOAD });
+httpServer.listen(PORT, () => {
+  console.log(`WS server listening on :${PORT}`);
+});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
