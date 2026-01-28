@@ -90,6 +90,11 @@ const httpServer = createServer((req, res) => {
       players: connectedPlayers().length,
       tick: state.tick,
       metrics,
+      collect: {
+        total: state.collectibles.length,
+        collected: state.collected,
+        remaining: state.collectibles.filter((c) => !c.collected).length,
+      },
       version: pkg.version,
       score: state.score,
     };
