@@ -1635,14 +1635,17 @@ function updateHud() {
     if (collectBoard) {
       collectBoard.style.display = 'grid';
       collectBoard.replaceChildren();
-      const entries = Object.entries(net.collect?.score || {});
+      const entries = Object.entries(net.collect?.score || {}).sort((a, b) => (b[1] || 0) - (a[1] || 0));
       if (entries.length) {
         entries.forEach(([pid, cnt]) => {
           const rowName = document.createElement('div');
           const rowScore = document.createElement('div');
-          const displayName = net.players.get(pid)?.username || pid;
+          const playerMeta = net.players.get(pid);
+          const displayName = playerMeta?.username || pid;
+          const side = playerMeta?.side;
           rowName.textContent = pid === net.id ? `${displayName} (you)` : displayName;
-          rowScore.textContent = `${cnt} collected`;
+          if (side) rowName.style.color = sideHex(side);
+          rowScore.textContent = `${cnt} collected${side ? ` • ${side}` : ''}`;
           collectBoard.append(rowName, rowScore);
         });
       } else {

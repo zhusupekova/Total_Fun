@@ -782,6 +782,7 @@ setInterval(() => {
       state.readyUntil = null;
       resetScore();
       setMatchState('WAITING', 'RESET');
+      maybeStartMatch();
     }
   }
 }, 1000 / TICK_RATE);
