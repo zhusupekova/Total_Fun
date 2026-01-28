@@ -1571,6 +1571,7 @@ function updateHud() {
   const matchBanner = document.getElementById('match-banner');
   const scoreEl = document.getElementById('score-line');
   const collectBoard = document.getElementById('collect-board');
+  const playerBoard = document.getElementById('player-board');
   const btnStart = document.getElementById('btn-start');
   const btnReset = document.getElementById('btn-reset');
   const btnRestart = document.getElementById('btn-restart');
@@ -1607,6 +1608,7 @@ function updateHud() {
     if (collectBoard) {
       collectBoard.style.display = 'none';
     }
+    if (playerBoard) playerBoard.style.display = 'none';
   } else if (net.connected) {
     const pingVal = net.avgPing ?? net.latencyMs;
     const ping = pingVal != null ? `, ping ~${pingVal.toFixed(0)}ms` : '';
@@ -1650,6 +1652,24 @@ function updateHud() {
         });
       } else {
         collectBoard.textContent = 'Collecting...';
+      }
+    }
+    if (playerBoard) {
+      playerBoard.style.display = 'grid';
+      playerBoard.replaceChildren();
+      net.players.forEach((p, pid) => {
+        const rowName = document.createElement('div');
+        const rowScore = document.createElement('div');
+        const dot = document.createElement('span');
+        dot.className = 'pill-dot';
+        dot.style.backgroundColor = sideHex(p.side || 'top');
+        rowName.append(dot, document.createTextNode(pid === net.id ? `${p.username || pid} (you)` : (p.username || pid)));
+        const collected = net.collect?.score?.[pid] ?? 0;
+        rowScore.textContent = `${p.side || '-'} • ${collected} collected`;
+        playerBoard.append(rowName, rowScore);
+      });
+      if (!playerBoard.hasChildNodes()) {
+        playerBoard.textContent = 'Waiting players...';
       }
     }
     if (matchBanner) {
