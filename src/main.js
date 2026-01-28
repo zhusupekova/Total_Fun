@@ -150,6 +150,7 @@ function resolveIdentity() {
 net.identity = resolveIdentity();
 
 const magnetVisuals = [];
+let nearestMarker = null;
 function createMagnetMarkers() {
   magnetVisuals.forEach((m) => scene.remove(m));
   magnetVisuals.length = 0;
@@ -663,6 +664,20 @@ function makeBlobShadow(radius = 1) {
 const shadowMesh = makeBlobShadow(0.9);
 scene.add(shadowMesh);
 
+function getNearestMarker() {
+  if (nearestMarker) return nearestMarker;
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.7, 1, 32),
+    new THREE.MeshBasicMaterial({ color: 0x1ee0d7, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.15;
+  ring.visible = false;
+  scene.add(ring);
+  nearestMarker = ring;
+  return ring;
+}
+
 function setBallRadiusFromObject(object) {
   const box = new THREE.Box3().setFromObject(object);
   const size = new THREE.Vector3();
@@ -890,6 +905,7 @@ function bindNetControls() {
 function bindGameUiControls() {
   const btnStart = document.getElementById('btn-start');
   const btnReset = document.getElementById('btn-reset');
+  const btnRestart = document.getElementById('btn-restart');
   if (btnStart) {
     btnStart.addEventListener('click', () => {
       if (net.enabled) return;
@@ -902,6 +918,12 @@ function bindGameUiControls() {
       if (net.enabled) return;
       resetOfflineSession();
       updateHud();
+    });
+  }
+  if (btnRestart) {
+    btnRestart.addEventListener('click', () => {
+      if (!net.enabled || !net.connected || !net.ws) return;
+      net.ws.send(JSON.stringify({ type: 'RESTART' }));
     });
   }
 }
@@ -1046,6 +1068,8 @@ function collectItem(item) {
 function updateCollectibles(dt) {
   const local = players.find((p) => p.isLocal);
   if (!local) return;
+  let nearest = null;
+  let nearestDist = Infinity;
   for (let i = collectibles.length - 1; i >= 0; i -= 1) {
     const item = collectibles[i];
     const phase = (item.userData.phase || 0) + dt * 2.4;
@@ -1056,7 +1080,22 @@ function updateCollectibles(dt) {
     const dz = item.position.z - local.mesh.position.z;
     if (Math.hypot(dx, dz) < 1.15) {
       collectItem(item);
+      continue;
     }
+    const d2 = dx * dx + dz * dz;
+    if (d2 < nearestDist) {
+      nearestDist = d2;
+      nearest = item.position;
+    }
+  }
+  const marker = getNearestMarker();
+  if (nearest) {
+    marker.visible = true;
+    marker.position.x = nearest.x;
+    marker.position.z = nearest.z;
+    marker.rotation.z += dt * 2;
+  } else {
+    marker.visible = false;
   }
 }
 
@@ -1481,6 +1520,33 @@ function applyNetState() {
     shadowMesh.position.z = ballMesh.position.z;
     shadowMesh.scale.set(ballState.radius * 2, ballState.radius * 2, 1);
   }
+
+  // highlight nearest in online mode
+  const marker = getNearestMarker();
+  if (collectibles.length) {
+    let nearest = null;
+    let dmin = Infinity;
+    const local = players.find((p) => p.isLocal);
+    if (local) {
+      collectibles.forEach((c) => {
+        const dx = c.position.x - local.mesh.position.x;
+        const dz = c.position.z - local.mesh.position.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < dmin) {
+          dmin = d2;
+          nearest = c.position;
+        }
+      });
+    }
+    if (nearest) {
+      marker.visible = true;
+      marker.position.set(nearest.x, marker.position.y, nearest.z);
+    } else {
+      marker.visible = false;
+    }
+  } else {
+    marker.visible = false;
+  }
 }
 
 function sendNetInput() {
@@ -1504,8 +1570,10 @@ function updateHud() {
   const cta = document.getElementById('cta-retry');
   const matchBanner = document.getElementById('match-banner');
   const scoreEl = document.getElementById('score-line');
+  const collectBoard = document.getElementById('collect-board');
   const btnStart = document.getElementById('btn-start');
   const btnReset = document.getElementById('btn-reset');
+  const btnRestart = document.getElementById('btn-restart');
   const stateChip = document.getElementById('state-chip');
   if (!netEl) return;
   const hideBanner = () => { if (matchBanner) matchBanner.style.display = 'none'; };
@@ -1514,6 +1582,7 @@ function updateHud() {
     btnStart.textContent = GAME.state === 'running' ? 'Restart' : 'Start';
   }
   if (btnReset) btnReset.disabled = net.enabled;
+  if (btnRestart) btnRestart.disabled = !net.enabled || !net.connected;
   if (!net.enabled) {
     netEl.textContent = 'Mode: offline demo (local physics + bots + collectibles)';
     if (matchEl) matchEl.textContent = `Run: ${GAME.state.toUpperCase()}`;
@@ -1534,6 +1603,9 @@ function updateHud() {
       }
     } else {
       hideBanner();
+    }
+    if (collectBoard) {
+      collectBoard.style.display = 'none';
     }
   } else if (net.connected) {
     const pingVal = net.avgPing ?? net.latencyMs;
@@ -1559,6 +1631,23 @@ function updateHud() {
         : `Score — top:${s.top ?? 0} right:${s.right ?? 0} bottom:${s.bottom ?? 0} left:${s.left ?? 0}`;
       scoreEl.textContent = `${scoreText}${collectStr}`;
       scoreEl.style.display = '';
+    }
+    if (collectBoard) {
+      collectBoard.style.display = 'grid';
+      collectBoard.replaceChildren();
+      const entries = Object.entries(net.collect?.score || {});
+      if (entries.length) {
+        entries.forEach(([pid, cnt]) => {
+          const rowName = document.createElement('div');
+          const rowScore = document.createElement('div');
+          const displayName = net.players.get(pid)?.username || pid;
+          rowName.textContent = pid === net.id ? `${displayName} (you)` : displayName;
+          rowScore.textContent = `${cnt} collected`;
+          collectBoard.append(rowName, rowScore);
+        });
+      } else {
+        collectBoard.textContent = 'Collecting...';
+      }
     }
     if (matchBanner) {
       if (net.matchState === 'FINISHED') {
@@ -1614,6 +1703,7 @@ function updateHud() {
     }
     if (scoreEl) scoreEl.textContent = '';
     hideBanner();
+    if (collectBoard) collectBoard.style.display = 'none';
   }
   if (stateChip) {
     if (!net.enabled) {

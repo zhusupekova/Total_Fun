@@ -34,6 +34,7 @@ const BALL = {
   hitImpulse: 2.5,
   angleInfluence: 1,
 };
+const RESET_COOLDOWN_MS = 1000;
 
 const SIDE_ORDER = ['top', 'right', 'bottom', 'left'];
 const SIDE_ZONES = {
@@ -327,10 +328,12 @@ function setMatchState(next, reason = null) {
   if (next === 'READY') {
     resetBall();
     resetCollectibles();
+    resetPlayersPositions();
   }
   if (next === 'WAITING') {
     resetBall();
     resetCollectibles();
+    resetPlayersPositions();
   }
 }
 
@@ -343,6 +346,15 @@ function resetBall() {
 
 function resetScore() {
   state.score = { top: 0, right: 0, bottom: 0, left: 0 };
+}
+
+function resetPlayersPositions() {
+  state.players.forEach((p) => {
+    const pos = playerDefault(p.side);
+    p.x = pos.x;
+    p.z = pos.z;
+    p.input = {};
+  });
 }
 
 function randomCollectiblePosition() {
@@ -679,6 +691,16 @@ function handleMessage(ws, raw) {
       if (!ALLOW_DEBUG) return;
       if (!meta.get(ws)?.handshaked) return;
       if (msg.payload?.cmd === 'RESET_BALL') resetBall();
+      break;
+    case 'RESTART':
+      if (!meta.get(ws)?.handshaked) return;
+      if (state._lastResetAt && now - state._lastResetAt < RESET_COOLDOWN_MS) return;
+      state._lastResetAt = now;
+      resetScore();
+      resetCollectibles();
+      resetPlayersPositions();
+      setMatchState('WAITING', 'CLIENT_RESET');
+      maybeStartMatch();
       break;
     default:
       send(ws, makeError('BAD_INPUT', 'Unknown message'));

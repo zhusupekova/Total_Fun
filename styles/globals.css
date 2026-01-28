@@ -49,7 +49,7 @@ html, body, #__next {
   display: flex;
   gap: 8px;
   margin-top: 6px;
-}
+  }
 
 #hud button {
   padding: 6px 10px;
@@ -69,6 +69,14 @@ html, body, #__next {
 #hud button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+#collect-board {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 2px 8px;
+  align-items: center;
+  font-size: 12px;
 }
 
 #hud .pill {

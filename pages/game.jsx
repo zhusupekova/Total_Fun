@@ -27,9 +27,11 @@ function GameView() {
         <div className="row" id="net-status" />
         <div className="row" id="match-status" />
         <div className="row" id="score-line" />
+        <div className="row" id="collect-board" />
         <div className="row hud-actions">
           <button id="btn-start">Start</button>
           <button id="btn-reset" className="secondary">Reset</button>
+          <button id="btn-restart" className="secondary">Restart (online)</button>
         </div>
         <button id="audio-toggle">Sound: on</button>
       </div>

@@ -22,6 +22,7 @@ Environment=CONN_WINDOW_MS=10000
 Environment=MAX_PAYLOAD=4096
 Environment=METRICS_INTERVAL_MS=60000
 Environment=ALLOW_DEBUG=false
+Environment=COLLECTIBLE_COUNT=10
 ExecStart=/usr/bin/node server.js
 Restart=always
 
@@ -38,7 +39,7 @@ WORKDIR /app
 COPY server/package*.json ./
 RUN npm install --production
 COPY server ./
-ENV PORT=7071 BOT_TOKEN=xxx REQUIRE_AUTH=true
+ENV PORT=7071 BOT_TOKEN=xxx REQUIRE_AUTH=true COLLECTIBLE_COUNT=10
 CMD ["node", "server.js"]
 ```
 Запуск: `docker build -t total_fun_server . && docker run -p 7071:7071 total_fun_server`.

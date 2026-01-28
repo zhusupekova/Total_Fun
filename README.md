@@ -37,6 +37,7 @@ npm start           # PORT=7071 по умолчанию
 - `MAGNETS=off` — отключить магнитные зоны.
 - `BOT_TOKEN` — токен Telegram бота для проверки initData.
 - `REQUIRE_AUTH=true` — требовать валидный initData (prod).
+- `COLLECTIBLE_COUNT` — количество коллектаблов в матче (по умолчанию 10).
 - `AUTH_GRACE_SEC` — TTL auth_date, по умолчанию 86400.
 - `MAX_MSG_PER_SEC` — лимит входящих сообщений (120).
 - `MAX_CONN_PER_IP` / `CONN_WINDOW_MS` — квота подключений с IP (8 / 10000).
