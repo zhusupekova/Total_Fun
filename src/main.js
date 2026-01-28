@@ -1415,6 +1415,12 @@ function clampPlayerToSideLine(pos, side) {
   if (anchor?.z != null) pos.z = anchor.z;
 }
 
+function enforcePlayerBounds() {
+  players.forEach((p) => {
+    clampPlayerToSideLine(p.mesh.position, p.side);
+  });
+}
+
 function moveLocalPlayer(dt) {
   const speed = PHYSICS.playerSpeed;
   const player = players.find((p) => p.isLocal);
@@ -1553,6 +1559,7 @@ function applyNetState() {
     shadowMesh.position.z = ballMesh.position.z;
     shadowMesh.scale.set(ballState.radius * 2, ballState.radius * 2, 1);
   }
+  enforcePlayerBounds();
 
   // highlight nearest in online mode
   const marker = getNearestMarker();
@@ -1927,6 +1934,7 @@ function update(dt) {
       updateCollectibles(dt);
     }
   }
+  enforcePlayerBounds();
 }
 
 function animate() {

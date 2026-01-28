@@ -169,6 +169,10 @@ function clampPlayerToZone(player) {
   if (anchor?.z != null) player.z = anchor.z;
 }
 
+function enforcePlayerBounds() {
+  state.players.forEach((p) => clampPlayerToZone(p));
+}
+
 function normalizeDir(input = {}) {
   let x = (input.right ? 1 : 0) - (input.left ? 1 : 0);
   let z = (input.back ? 1 : 0) - (input.forward ? 1 : 0);
@@ -466,6 +470,7 @@ function tick(dt) {
     }
     clampPlayerToZone(p);
   });
+  enforcePlayerBounds();
 
   if (state.matchState === 'IN_PROGRESS') {
     applyMagnets(dt);
