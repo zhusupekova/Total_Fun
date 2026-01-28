@@ -45,6 +45,46 @@ html, body, #__next {
 #hud .row { margin-bottom: 4px; }
 #hud .row:last-child { margin-bottom: 0; }
 
+#hud .hud-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+#hud button {
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.08);
+  color: #e6f2ff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#hud button.secondary {
+  background: rgba(255,255,255,0.06);
+  color: #d7e9ff;
+}
+
+#hud button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+#hud .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.08);
+  color: #e6f2ff;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
 #error-banner {
   position: absolute;
   top: calc(58px + env(safe-area-inset-top, 0px));

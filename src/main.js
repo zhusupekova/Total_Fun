@@ -11,6 +11,8 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = false;
 app.appendChild(renderer.domElement);
+document.documentElement.style.overscrollBehavior = 'none';
+document.body.style.overscrollBehavior = 'none';
 
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 100);
 camera.position.set(0, 13, 15);
@@ -120,6 +122,7 @@ const net = {
   errorMessage: '',
   score: {},
   avgPing: null,
+  collect: { total: 0, collected: 0, score: {}, items: [] },
 };
 const gltfLoader = new GLTFLoader();
 const texLoader = new THREE.TextureLoader();
@@ -466,6 +469,14 @@ function unlockAudio() {
   });
 }
 
+function fireHaptics(style = 'medium') {
+  try {
+    tg?.HapticFeedback?.impactOccurred?.(style);
+  } catch (e) {
+    // ignore haptic failures
+  }
+}
+
 function attachLabel(player, text) {
   if (player.label) {
     player.mesh.remove(player.label);
@@ -667,22 +678,66 @@ const ballState = {
   radius: ARENA.ballRadius,
 };
 
-const input = { forward: false, back: false, left: false, right: false, paused: false };
+const GAME = { state: 'running', collected: 0, totalCollectibles: 10 };
+const collectibles = [];
+
+const input = {
+  moveX: 0,
+  moveZ: 0,
+  forward: false,
+  back: false,
+  left: false,
+  right: false,
+  paused: false,
+  touchActive: false,
+  dragActive: false,
+  source: 'idle',
+};
+
+const keyState = { up: false, down: false, left: false, right: false };
+
+function applyDirectionalFlags() {
+  const dead = 0.08;
+  input.forward = input.moveZ < -dead;
+  input.back = input.moveZ > dead;
+  input.left = input.moveX < -dead;
+  input.right = input.moveX > dead;
+}
+
+function setMoveVector(x, z, source = 'unknown') {
+  const len = Math.hypot(x, z);
+  const nx = len > 1 ? x / len : x;
+  const nz = len > 1 ? z / len : z;
+  input.moveX = nx;
+  input.moveZ = nz;
+  input.source = source;
+  applyDirectionalFlags();
+}
+
+function recomputeKeyboardVector() {
+  const x = (keyState.right ? 1 : 0) - (keyState.left ? 1 : 0);
+  const z = (keyState.down ? 1 : 0) - (keyState.up ? 1 : 0);
+  if (input.touchActive || input.dragActive) return;
+  setMoveVector(x, z, 'keyboard');
+}
 
 window.addEventListener('keydown', (e) => {
   unlockAudio();
-  if (e.code === 'KeyW') input.forward = true;
-  if (e.code === 'KeyS') input.back = true;
-  if (e.code === 'KeyA') input.left = true;
-  if (e.code === 'KeyD') input.right = true;
+  if (['ArrowUp', 'KeyW'].includes(e.code)) { keyState.up = true; e.preventDefault(); }
+  if (['ArrowDown', 'KeyS'].includes(e.code)) { keyState.down = true; e.preventDefault(); }
+  if (['ArrowLeft', 'KeyA'].includes(e.code)) { keyState.left = true; e.preventDefault(); }
+  if (['ArrowRight', 'KeyD'].includes(e.code)) { keyState.right = true; e.preventDefault(); }
   if (e.code === 'Space') input.paused = !input.paused;
   if (e.code === 'KeyR') resetBall();
+  recomputeKeyboardVector();
 });
+
 window.addEventListener('keyup', (e) => {
-  if (e.code === 'KeyW') input.forward = false;
-  if (e.code === 'KeyS') input.back = false;
-  if (e.code === 'KeyA') input.left = false;
-  if (e.code === 'KeyD') input.right = false;
+  if (['ArrowUp', 'KeyW'].includes(e.code)) keyState.up = false;
+  if (['ArrowDown', 'KeyS'].includes(e.code)) keyState.down = false;
+  if (['ArrowLeft', 'KeyA'].includes(e.code)) keyState.left = false;
+  if (['ArrowRight', 'KeyD'].includes(e.code)) keyState.right = false;
+  recomputeKeyboardVector();
 });
 
 function bindTouchControls() {
@@ -693,7 +748,9 @@ function bindTouchControls() {
 
   const resetStick = () => {
     thumb.style.transform = 'translate(44px, 44px)';
-    input.forward = input.back = input.left = input.right = false;
+    input.touchActive = false;
+    setMoveVector(0, 0, 'touch');
+    recomputeKeyboardVector();
   };
 
   const handleMove = (e) => {
@@ -711,17 +768,14 @@ function bindTouchControls() {
     thumb.style.transform = `translate(${clampR * nx + clampR + 8}px, ${clampR * ny + clampR + 8}px)`;
 
     // y axis inverted: up = negative dy
-    const dead = 0.15;
-    input.left = nx < -dead;
-    input.right = nx > dead;
-    input.forward = ny < -dead;
-    input.back = ny > dead;
+    setMoveVector(nx, ny, 'touch');
   };
 
   root.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     pointerId = e.pointerId;
     root.setPointerCapture(pointerId);
+    input.touchActive = true;
     handleMove(e);
   });
   root.addEventListener('pointermove', handleMove);
@@ -732,6 +786,45 @@ function bindTouchControls() {
   };
   root.addEventListener('pointerup', end);
   root.addEventListener('pointercancel', end);
+}
+
+function bindDragControls() {
+  const canvas = renderer.domElement;
+  if (!canvas) return;
+  let pointerId = null;
+  let origin = { x: 0, y: 0 };
+
+  const end = (e) => {
+    if (pointerId == null || e.pointerId !== pointerId) return;
+    canvas.releasePointerCapture(pointerId);
+    pointerId = null;
+    input.dragActive = false;
+    setMoveVector(0, 0, 'drag');
+    recomputeKeyboardVector();
+  };
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    pointerId = e.pointerId;
+    origin = { x: e.clientX, y: e.clientY };
+    input.dragActive = true;
+    setMoveVector(0, 0, 'drag');
+    canvas.setPointerCapture(pointerId);
+    e.preventDefault();
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (pointerId == null || e.pointerId !== pointerId) return;
+    const dx = e.clientX - origin.x;
+    const dy = e.clientY - origin.y;
+    const clamp = 90;
+    const nx = THREE.MathUtils.clamp(dx / clamp, -1, 1);
+    const nz = THREE.MathUtils.clamp(dy / clamp, -1, 1);
+    setMoveVector(nx, nz, 'drag');
+  });
+
+  canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('pointercancel', end);
 }
 
 function bindNetControls() {
@@ -791,6 +884,25 @@ function bindNetControls() {
       refresh();
     });
     refresh();
+  }
+}
+
+function bindGameUiControls() {
+  const btnStart = document.getElementById('btn-start');
+  const btnReset = document.getElementById('btn-reset');
+  if (btnStart) {
+    btnStart.addEventListener('click', () => {
+      if (net.enabled) return;
+      resetOfflineSession();
+      updateHud();
+    });
+  }
+  if (btnReset) {
+    btnReset.addEventListener('click', () => {
+      if (net.enabled) return;
+      resetOfflineSession();
+      updateHud();
+    });
   }
 }
 
@@ -858,6 +970,105 @@ function resetBall() {
 
 resetBall();
 
+function clearCollectibles() {
+  collectibles.forEach((c) => scene.remove(c));
+  collectibles.length = 0;
+}
+
+function makeCollectibleMesh(idx = 0, total = GAME.totalCollectibles) {
+  const group = new THREE.Group();
+  const hue = 0.12 + (idx / Math.max(total, 1)) * 0.6;
+  const color = new THREE.Color().setHSL(hue, 0.6, 0.6);
+  const gem = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(0.35, 1),
+    new THREE.MeshStandardMaterial({ color: color.getHex(), metalness: 0.35, roughness: 0.3, emissive: color.multiplyScalar(0.45) })
+  );
+  const halo = new THREE.Mesh(
+    new THREE.SphereGeometry(0.48, 14, 10),
+    new THREE.MeshBasicMaterial({ color: color.getHex(), transparent: true, opacity: 0.16, depthWrite: false })
+  );
+  halo.scale.set(1.2, 1, 1.2);
+  gem.position.y = 0.2;
+  halo.position.y = 0.2;
+  group.add(gem, halo);
+  group.userData = { phase: Math.random() * Math.PI * 2 };
+  return group;
+}
+
+function randomCollectiblePosition() {
+  const marginX = ARENA.width * 0.08 + 0.5;
+  const marginZ = ARENA.height * 0.08 + 0.5;
+  const x = THREE.MathUtils.randFloatSpread(ARENA.width - marginX * 2);
+  const z = THREE.MathUtils.randFloatSpread(ARENA.height - marginZ * 2);
+  return { x, z };
+}
+
+function spawnCollectibles() {
+  if (net.enabled) return;
+  clearCollectibles();
+  GAME.collected = 0;
+  for (let i = 0; i < GAME.totalCollectibles; i += 1) {
+    const pos = randomCollectiblePosition();
+    const group = makeCollectibleMesh(i, GAME.totalCollectibles);
+    group.position.set(pos.x, 0.8 + Math.random() * 0.1, pos.z);
+    collectibles.push(group);
+    scene.add(group);
+  }
+}
+
+function syncNetCollectibles(items = [], total = 0, collected = 0) {
+  clearCollectibles();
+  net.collect.items = items;
+  net.collect.total = total || items.length;
+  net.collect.collected = collected;
+  items.forEach((item, idx) => {
+    const mesh = makeCollectibleMesh(idx, Math.max(items.length, total || GAME.totalCollectibles));
+    mesh.position.set(item.x, 0.9, item.z);
+    collectibles.push(mesh);
+    scene.add(mesh);
+  });
+}
+
+function collectItem(item) {
+  if (!item || item.userData.collected) return;
+  item.userData.collected = true;
+  scene.remove(item);
+  const idx = collectibles.indexOf(item);
+  if (idx >= 0) collectibles.splice(idx, 1);
+  GAME.collected += 1;
+  playSfx('goal', 0.65);
+  fireHaptics('medium');
+  if (GAME.collected >= GAME.totalCollectibles) {
+    GAME.state = 'win';
+  }
+}
+
+function updateCollectibles(dt) {
+  const local = players.find((p) => p.isLocal);
+  if (!local) return;
+  for (let i = collectibles.length - 1; i >= 0; i -= 1) {
+    const item = collectibles[i];
+    const phase = (item.userData.phase || 0) + dt * 2.4;
+    item.userData.phase = phase;
+    item.position.y = 0.9 + Math.sin(phase) * 0.12;
+    item.rotation.y += dt * 1.4;
+    const dx = item.position.x - local.mesh.position.x;
+    const dz = item.position.z - local.mesh.position.z;
+    if (Math.hypot(dx, dz) < 1.15) {
+      collectItem(item);
+    }
+  }
+}
+
+function resetOfflineSession() {
+  if (net.enabled) return;
+  initOfflinePlayers();
+  resetBall();
+  spawnCollectibles();
+  GAME.state = 'running';
+  setMoveVector(0, 0, 'reset');
+}
+
 function scheduleReconnect() {
   if (!net.shouldReconnect) return;
   const backoff = [1000, 2000, 3000, 5000, 8000];
@@ -901,6 +1112,10 @@ function handleNetMessage(raw) {
       if (msg.payload?.snapshotRate) {
         net.snapshotRate = msg.payload.snapshotRate;
         net.snapshotIntervalMs = 1000 / msg.payload.snapshotRate;
+      }
+      if (msg.payload?.collect) {
+        net.collect.total = msg.payload.collect.total ?? net.collect.total;
+        net.collect.collected = msg.payload.collect.collected ?? net.collect.collected;
       }
       if (msg.payload?.arena) {
         ARENA.width = msg.payload.arena.width ?? ARENA.width;
@@ -1038,10 +1253,15 @@ function stopNet() {
   clearPlayers();
   initOfflinePlayers();
   resetBall();
+  GAME.state = 'running';
+  spawnCollectibles();
 }
 
 function startNet(url) {
   if (url) net.wsUrl = url;
+  clearCollectibles();
+  GAME.state = 'idle';
+  GAME.collected = 0;
   net.shouldReconnect = true;
   net.enabled = true;
   net.snapshot = null;
@@ -1136,15 +1356,8 @@ function moveLocalPlayer(dt) {
   const speed = PHYSICS.playerSpeed;
   const player = players.find((p) => p.isLocal);
   if (!player) return;
-  const dir = new THREE.Vector2(0, 0);
-  if (input.forward) dir.y -= 1;
-  if (input.back) dir.y += 1;
-  if (input.left) dir.x -= 1;
-  if (input.right) dir.x += 1;
-  if (dir.lengthSq() > 0) dir.normalize();
-
-  player.mesh.position.x += dir.x * speed * dt;
-  player.mesh.position.z += dir.y * speed * dt;
+  player.mesh.position.x += input.moveX * speed * dt;
+  player.mesh.position.z += input.moveZ * speed * dt;
   clampPlayerToZone(player.mesh.position, player.side);
 }
 
@@ -1248,6 +1461,16 @@ function applyNetState() {
     shadowMesh.scale.set(ballState.radius * 2, ballState.radius * 2, 1);
   }
 
+  if (curr.payload?.collect) {
+    const coll = curr.payload.collect;
+    net.collect.total = coll.total ?? net.collect.total;
+    net.collect.collected = coll.collected ?? net.collect.collected;
+    net.collect.score = coll.score || net.collect.score || {};
+    if (Array.isArray(coll.items)) {
+      syncNetCollectibles(coll.items, coll.total, coll.collected);
+    }
+  }
+
   if (net.matchState && net.matchState !== 'IN_PROGRESS' && net.matchState !== 'READY') {
     players.forEach((p) => {
       const base = playerDefaultPosition(p.side);
@@ -1281,16 +1504,37 @@ function updateHud() {
   const cta = document.getElementById('cta-retry');
   const matchBanner = document.getElementById('match-banner');
   const scoreEl = document.getElementById('score-line');
+  const btnStart = document.getElementById('btn-start');
+  const btnReset = document.getElementById('btn-reset');
+  const stateChip = document.getElementById('state-chip');
   if (!netEl) return;
   const hideBanner = () => { if (matchBanner) matchBanner.style.display = 'none'; };
+  if (btnStart) {
+    btnStart.disabled = net.enabled;
+    btnStart.textContent = GAME.state === 'running' ? 'Restart' : 'Start';
+  }
+  if (btnReset) btnReset.disabled = net.enabled;
   if (!net.enabled) {
-    netEl.textContent = 'Mode: offline demo (local physics + bots)';
-    if (matchEl) matchEl.textContent = 'Match: OFFLINE';
+    netEl.textContent = 'Mode: offline demo (local physics + bots + collectibles)';
+    if (matchEl) matchEl.textContent = `Run: ${GAME.state.toUpperCase()}`;
     if (errEl) errEl.style.display = 'none';
     if (cta) cta.style.display = 'none';
-    if (matchBanner) matchBanner.textContent = 'Offline demo';
-    if (scoreEl) scoreEl.textContent = '';
-    hideBanner();
+    if (scoreEl) {
+      scoreEl.textContent = `Collectibles: ${GAME.collected}/${GAME.totalCollectibles}`;
+      scoreEl.style.display = '';
+    }
+    if (matchBanner) {
+      if (GAME.state === 'win') {
+        matchBanner.textContent = 'You collected everything! 🎉';
+        matchBanner.style.display = 'block';
+        matchBanner.style.borderColor = 'var(--tf-accent, #1ee0d7)';
+        matchBanner.style.color = 'var(--tf-accent, #1ee0d7)';
+      } else {
+        matchBanner.style.display = 'none';
+      }
+    } else {
+      hideBanner();
+    }
   } else if (net.connected) {
     const pingVal = net.avgPing ?? net.latencyMs;
     const ping = pingVal != null ? `, ping ~${pingVal.toFixed(0)}ms` : '';
@@ -1307,11 +1551,13 @@ function updateHud() {
     if (scoreEl) {
       const goal = window.SERVER_CONFIG?.scoreToWin || null;
       const s = net.score || {};
-      if (goal) {
-        scoreEl.textContent = `Score (goal ${goal}) — top:${s.top ?? 0}/${goal} right:${s.right ?? 0}/${goal} bottom:${s.bottom ?? 0}/${goal} left:${s.left ?? 0}/${goal}`;
-      } else {
-        scoreEl.textContent = `Score — top:${s.top ?? 0} right:${s.right ?? 0} bottom:${s.bottom ?? 0} left:${s.left ?? 0}`;
-      }
+      const collectStr = net.collect?.total
+        ? ` • collectibles ${net.collect.collected ?? 0}/${net.collect.total}`
+        : '';
+      const scoreText = goal
+        ? `Score (goal ${goal}) — top:${s.top ?? 0}/${goal} right:${s.right ?? 0}/${goal} bottom:${s.bottom ?? 0}/${goal} left:${s.left ?? 0}/${goal}`
+        : `Score — top:${s.top ?? 0} right:${s.right ?? 0} bottom:${s.bottom ?? 0} left:${s.left ?? 0}`;
+      scoreEl.textContent = `${scoreText}${collectStr}`;
       scoreEl.style.display = '';
     }
     if (matchBanner) {
@@ -1319,7 +1565,12 @@ function updateHud() {
         const winSide = net.matchReason?.startsWith('WIN_') ? net.matchReason.slice(4).toLowerCase() : null;
         const s = net.score || {};
         const scoreText = `Score top:${s.top ?? 0} right:${s.right ?? 0} bottom:${s.bottom ?? 0} left:${s.left ?? 0}`;
-        if (winSide) {
+        if (net.matchReason === 'WIN_COLLECT') {
+          const col = net.collect || {};
+          matchBanner.textContent = `All collectibles: ${col.collected ?? 0}/${col.total ?? 0}`;
+          matchBanner.style.borderColor = 'var(--tf-accent, #1ee0d7)';
+          matchBanner.style.color = 'var(--tf-accent, #1ee0d7)';
+        } else if (winSide) {
           matchBanner.textContent = `Winner: ${winSide} • ${scoreText}`;
           matchBanner.style.borderColor = sideHex(winSide);
           matchBanner.style.color = sideHex(winSide);
@@ -1348,11 +1599,11 @@ function updateHud() {
     const errText = errCode ? ` — error: ${errCode}` : (net.errorMessage ? ` — ${net.errorMessage}` : '');
     const state = net.connectionState || 'connecting';
     netEl.textContent = `${state.toUpperCase()} to ${net.wsUrl || ''}${errText} (tap Connect to retry)`;
-    if (matchEl) matchEl.textContent = `Match state: ${net.matchState || state}`;
-    if (errEl) {
-      const message = errCode || net.errorMessage;
-      if (message) {
-        errEl.textContent = `Connection error: ${message}`;
+      if (matchEl) matchEl.textContent = `Match state: ${net.matchState || state}`;
+      if (errEl) {
+        const message = errCode || net.errorMessage;
+        if (message) {
+          errEl.textContent = `Connection error: ${message}`;
         errEl.style.display = 'block';
       } else {
         errEl.style.display = 'none';
@@ -1363,6 +1614,13 @@ function updateHud() {
     }
     if (scoreEl) scoreEl.textContent = '';
     hideBanner();
+  }
+  if (stateChip) {
+    if (!net.enabled) {
+      stateChip.textContent = GAME.state === 'win' ? 'Win' : GAME.state === 'running' ? 'Running' : 'Idle';
+    } else {
+      stateChip.textContent = net.connected ? 'Online' : 'Connecting...';
+    }
   }
 }
 
@@ -1497,45 +1755,59 @@ document.addEventListener('visibilitychange', () => {
   isPageHidden = document.hidden;
 });
 
-function animate() {
-  const now = performance.now();
-  const dt = Math.min((now - lastTime) / 1000, 0.033);
-  lastTime = now;
-
-  if (isPageHidden) {
-    requestAnimationFrame(animate);
-    return;
-  }
-
+function update(dt) {
   if (net.enabled && (!net.connected || (net.matchState && net.matchState !== 'IN_PROGRESS' && net.matchState !== 'READY'))) {
-    input.forward = input.back = input.left = input.right = false;
+    setMoveVector(0, 0, 'net-guard');
   }
 
-  if (!input.paused) {
-    if (net.enabled) {
-      if (net.connected) {
-        sendNetInput();
-        applyNetState();
-      } else {
-        // online mode but no connection: freeze positions to avoid desync with server authority
+  if (input.paused) return;
+
+  if (net.enabled) {
+    if (net.connected) {
+      if (!input.touchActive && !input.dragActive) {
+        recomputeKeyboardVector();
       }
-    } else {
+      sendNetInput();
+      applyNetState();
+    }
+  } else {
+    if (GAME.state === 'running') {
       moveLocalPlayer(dt);
       moveBots(dt);
       updateBall(dt);
+      updateCollectibles(dt);
     }
   }
+}
 
-  updateHud();
-  updatePlayersList();
-  renderer.render(scene, camera);
+function animate() {
+  const now = performance.now();
+  const dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+
+  if (!isPageHidden) {
+    update(dt);
+    updateHud();
+    updatePlayersList();
+    renderer.render(scene, camera);
+  }
   requestAnimationFrame(animate);
 }
 
 animate();
 bindTouchControls();
+bindDragControls();
 bindNetControls();
+bindGameUiControls();
 applyDebugUi();
+
+if (!net.enabled) {
+  GAME.state = 'running';
+  spawnCollectibles();
+} else {
+  GAME.state = 'idle';
+}
+updateHud();
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;

@@ -17,6 +17,8 @@ const RECLAIM_MS = 15000;
 const INPUT_INTERVAL_MS = 33; // ~30 Hz
 const MAX_MSG_PER_SEC = 120;
 const CONFIG_EVERY_TICKS = 120; // send config in snapshot every ~2s at 60Hz
+const COLLECTIBLE_COUNT = parseInt(process.env.COLLECTIBLE_COUNT || '10', 10);
+const COLLECT_RADIUS = 1.15;
 const MAX_CONN_PER_IP = parseInt(process.env.MAX_CONN_PER_IP || '8', 10);
 const CONN_WINDOW_MS = parseInt(process.env.CONN_WINDOW_MS || '10000', 10);
 
@@ -69,6 +71,9 @@ const state = {
   ball: { x: 0, z: 0, vx: 0, vz: 0 },
   lastSnapshotAt: 0,
   score: { top: 0, right: 0, bottom: 0, left: 0 },
+  collectibles: [],
+  collected: 0,
+  collectScore: {}, // playerId -> count
 };
 
 const sockets = new Map(); // ws -> playerId
@@ -319,6 +324,14 @@ function setMatchState(next, reason = null) {
   }
   broadcast({ type: 'MATCH_EVENT', payload: { event: `MATCH_${next}`, reason: state.matchReason } });
   if (next === 'FINISHED') resetBall();
+  if (next === 'READY') {
+    resetBall();
+    resetCollectibles();
+  }
+  if (next === 'WAITING') {
+    resetBall();
+    resetCollectibles();
+  }
 }
 
 function resetBall() {
@@ -330,6 +343,49 @@ function resetBall() {
 
 function resetScore() {
   state.score = { top: 0, right: 0, bottom: 0, left: 0 };
+}
+
+function randomCollectiblePosition() {
+  const marginX = ARENA.width * 0.1 + 0.6;
+  const marginZ = ARENA.height * 0.1 + 0.6;
+  const x = Math.random() * (ARENA.width - marginX * 2) - (ARENA.width / 2 - marginX);
+  const z = Math.random() * (ARENA.height - marginZ * 2) - (ARENA.height / 2 - marginZ);
+  return { x, z };
+}
+
+function resetCollectibles() {
+  state.collectibles = [];
+  state.collected = 0;
+  connectedPlayers().forEach((p) => { state.collectScore[p.id] = 0; });
+  for (let i = 0; i < COLLECTIBLE_COUNT; i += 1) {
+    const pos = randomCollectiblePosition();
+    state.collectibles.push({ id: `c${i}`, x: pos.x, z: pos.z, collected: false });
+  }
+}
+
+function collectBy(player) {
+  if (!player) return;
+  state.collectScore[player.id] = (state.collectScore[player.id] || 0) + 1;
+  state.collected += 1;
+  if (state.collected >= state.collectibles.length) {
+    setMatchState('FINISHED', 'WIN_COLLECT');
+  }
+}
+
+function handleCollectibles() {
+  const actives = connectedPlayers();
+  for (const item of state.collectibles) {
+    if (item.collected) continue;
+    for (const p of actives) {
+      const dx = item.x - p.x;
+      const dz = item.z - p.z;
+      if (Math.hypot(dx, dz) <= COLLECT_RADIUS) {
+        item.collected = true;
+        collectBy(p);
+        break;
+      }
+    }
+  }
 }
 
 function maybeStartMatch() {
@@ -355,6 +411,7 @@ function reclaimSlots() {
   for (const [id, p] of state.players.entries()) {
     if (!p.connected && p.disconnectedAt && now - p.disconnectedAt > RECLAIM_MS) {
       state.players.delete(id);
+      delete state.collectScore[id];
     }
   }
 }
@@ -385,6 +442,7 @@ function tick(dt) {
     state.ball.vx *= BALL.damping;
     state.ball.vz *= BALL.damping;
     applyBallLimits();
+    handleCollectibles();
   } else {
     resetBall();
   }
@@ -393,12 +451,19 @@ function tick(dt) {
 function snapshot() {
   const q = (v) => Math.round(v * 1000) / 1000;
   const ts = Date.now();
+  const collectItems = state.collectibles.filter((c) => !c.collected).map((c) => ({ id: c.id, x: q(c.x), z: q(c.z) }));
   const payload = {
     matchState: state.matchState,
     matchReason: state.matchReason,
     ball: { pos: { x: q(state.ball.x), z: q(state.ball.z) }, r: ARENA.ballRadius },
     players: connectedPlayers().map((p) => ({ playerId: p.id, side: p.side, pos: { x: q(p.x), z: q(p.z) } })),
     score: state.score,
+    collect: {
+      total: state.collectibles.length,
+      collected: state.collected,
+      items: collectItems,
+      score: state.collectScore,
+    },
   };
   if (state.tick % CONFIG_EVERY_TICKS === 0) {
     payload.config = {
@@ -427,6 +492,7 @@ function sendWelcome(ws, player) {
         player: PLAYER,
         magnets: MAGNETS_ENABLED ? MAGNETS : [],
       },
+      collect: { total: state.collectibles.length || COLLECTIBLE_COUNT, collected: state.collected },
     },
   });
 }
@@ -531,6 +597,7 @@ function handleHello(ws, payload) {
     const pos = playerDefault(side);
     player = { id: nanoid(6), userId, username, side, x: pos.x, z: pos.z, input: {}, connected: true, ws, ping: null, lastInputAt: 0 };
     state.players.set(player.id, player);
+    state.collectScore[player.id] = 0;
   } else {
     send(ws, makeError('BAD_HELLO', 'Already connected'));
     ws.close();
