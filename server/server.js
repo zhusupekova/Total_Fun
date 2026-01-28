@@ -43,6 +43,12 @@ const SIDE_ZONES = {
   left: { x: [-8, -4], z: [-5, 5] },
   right: { x: [4, 8], z: [-5, 5] },
 };
+const SIDE_ANCHOR = {
+  top: () => ({ z: (SIDE_ZONES.top.z[0] + SIDE_ZONES.top.z[1]) / 2 }),
+  bottom: () => ({ z: (SIDE_ZONES.bottom.z[0] + SIDE_ZONES.bottom.z[1]) / 2 }),
+  left: () => ({ x: (SIDE_ZONES.left.x[0] + SIDE_ZONES.left.x[1]) / 2 }),
+  right: () => ({ x: (SIDE_ZONES.right.x[0] + SIDE_ZONES.right.x[1]) / 2 }),
+};
 
 const MAGNETS_ENABLED = process.env.MAGNETS !== 'off';
 const MAGNETS = [
@@ -134,9 +140,14 @@ function clamp(value, min, max) {
 
 function playerDefault(side) {
   const zone = SIDE_ZONES[side] || { x: [0, 0], z: [0, 0] };
-  return {
+  const base = {
     x: (zone.x[0] + zone.x[1]) / 2,
     z: (zone.z[0] + zone.z[1]) / 2,
+  };
+  const anchor = SIDE_ANCHOR[side]?.();
+  return {
+    x: anchor?.x ?? base.x,
+    z: anchor?.z ?? base.z,
   };
 }
 
@@ -153,6 +164,9 @@ function clampPlayerToZone(player) {
   if (!zone) return;
   player.x = clamp(player.x, zone.x[0], zone.x[1]);
   player.z = clamp(player.z, zone.z[0], zone.z[1]);
+  const anchor = SIDE_ANCHOR[player.side]?.();
+  if (anchor?.x != null) player.x = anchor.x;
+  if (anchor?.z != null) player.z = anchor.z;
 }
 
 function normalizeDir(input = {}) {
@@ -445,8 +459,11 @@ function tick(dt) {
 
   active.forEach((p) => {
     const dir = normalizeDir(p.input);
-    p.x += dir.x * PLAYER.speed * dt;
-    p.z += dir.z * PLAYER.speed * dt;
+    if (p.side === 'top' || p.side === 'bottom') {
+      p.x += dir.x * PLAYER.speed * dt;
+    } else if (p.side === 'left' || p.side === 'right') {
+      p.z += dir.z * PLAYER.speed * dt;
+    }
     clampPlayerToZone(p);
   });
 

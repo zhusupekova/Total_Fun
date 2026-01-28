@@ -33,6 +33,12 @@ const SIDE_ZONES = {
   left: { x: [-8, -4], z: [-5, 5] },
   right: { x: [4, 8], z: [-5, 5] },
 };
+const SIDE_ANCHOR = {
+  top: () => ({ z: (SIDE_ZONES.top.z[0] + SIDE_ZONES.top.z[1]) / 2 }),
+  bottom: () => ({ z: (SIDE_ZONES.bottom.z[0] + SIDE_ZONES.bottom.z[1]) / 2 }),
+  left: () => ({ x: (SIDE_ZONES.left.x[0] + SIDE_ZONES.left.x[1]) / 2 }),
+  right: () => ({ x: (SIDE_ZONES.right.x[0] + SIDE_ZONES.right.x[1]) / 2 }),
+};
 const PHYSICS = {
   playerSpeed: 6,
   minSpeed: 2,
@@ -595,10 +601,15 @@ createMagnetMarkers();
 function playerDefaultPosition(side) {
   const zone = SIDE_ZONES[side];
   if (!zone) return { x: 0, z: 0 };
-  return {
+  const base = {
     x: (zone.x[0] + zone.x[1]) / 2,
     z: (zone.z[0] + zone.z[1]) / 2,
   };
+  if (SIDE_ANCHOR[side]) {
+    const anchor = SIDE_ANCHOR[side]();
+    return { x: anchor.x ?? base.x, z: anchor.z ?? base.z };
+  }
+  return base;
 }
 
 function makeBallTexture() {
@@ -1391,13 +1402,23 @@ function clampPlayerToZone(pos, side) {
   pos.z = THREE.MathUtils.clamp(pos.z, zone.z[0], zone.z[1]);
 }
 
+function clampPlayerToSideLine(pos, side) {
+  clampPlayerToZone(pos, side);
+  const anchor = SIDE_ANCHOR[side]?.();
+  if (anchor?.x != null) pos.x = anchor.x;
+  if (anchor?.z != null) pos.z = anchor.z;
+}
+
 function moveLocalPlayer(dt) {
   const speed = PHYSICS.playerSpeed;
   const player = players.find((p) => p.isLocal);
   if (!player) return;
-  player.mesh.position.x += input.moveX * speed * dt;
-  player.mesh.position.z += input.moveZ * speed * dt;
-  clampPlayerToZone(player.mesh.position, player.side);
+  const side = player.side;
+  const moveX = (side === 'top' || side === 'bottom') ? input.moveX : 0;
+  const moveZ = (side === 'left' || side === 'right') ? input.moveZ : 0;
+  player.mesh.position.x += moveX * speed * dt;
+  player.mesh.position.z += moveZ * speed * dt;
+  clampPlayerToSideLine(player.mesh.position, player.side);
 }
 
 function moveBots(dt) {
@@ -1405,11 +1426,13 @@ function moveBots(dt) {
     if (p.isLocal) return;
     const target = ballMesh.position;
     const speed = 4.2;
-    const dirX = Math.sign(target.x - p.mesh.position.x);
-    const dirZ = Math.sign(target.z - p.mesh.position.z);
+    let dirX = Math.sign(target.x - p.mesh.position.x);
+    let dirZ = Math.sign(target.z - p.mesh.position.z);
+    if (p.side === 'top' || p.side === 'bottom') dirZ = 0;
+    if (p.side === 'left' || p.side === 'right') dirX = 0;
     p.mesh.position.x += dirX * speed * dt * 0.8;
     p.mesh.position.z += dirZ * speed * dt * 0.8;
-    clampPlayerToZone(p.mesh.position, p.side);
+    clampPlayerToSideLine(p.mesh.position, p.side);
   });
 }
 
@@ -1438,7 +1461,9 @@ function syncNetPlayers(snapshotPlayers) {
     player.mesh.rotation.y = sideYaw[player.side] ?? 0;
     const displayName = net.players.get(pid)?.username || pid;
     attachLabel(player, player.isLocal ? `You (${player.side})` : displayName);
-    player.mesh.position.lerp(new THREE.Vector3(pos.x, 0.5, pos.z), 0.35);
+    const aligned = new THREE.Vector3(pos.x, 0.5, pos.z);
+    clampPlayerToSideLine(aligned, player.side);
+    player.mesh.position.lerp(aligned, 0.35);
     alive.add(pid);
   });
   const toRemove = players.filter((p) => p.id && !alive.has(p.id));
@@ -1513,7 +1538,9 @@ function applyNetState() {
   if (net.matchState && net.matchState !== 'IN_PROGRESS' && net.matchState !== 'READY') {
     players.forEach((p) => {
       const base = playerDefaultPosition(p.side);
-      p.mesh.position.lerp(new THREE.Vector3(base.x, 0.5, base.z), 0.35);
+      const aligned = new THREE.Vector3(base.x, 0.5, base.z);
+      clampPlayerToSideLine(aligned, p.side);
+      p.mesh.position.lerp(aligned, 0.35);
     });
     ballMesh.position.lerp(new THREE.Vector3(0, ballState.radius, 0), 0.3);
     shadowMesh.position.x = ballMesh.position.x;
