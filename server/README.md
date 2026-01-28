@@ -33,5 +33,5 @@ npm start  # PORT=7071 by default
 - `ROOM_TIMEOUT_MS` — принудительное завершение матча по времени (0 = выкл).
 - `SCORE_TO_WIN` — включить счёт и завершение по очкам (0 = выкл), очки начисляются при касании север/юг борта.
 - `FINISHED_RESET_MS` — через сколько мс после FINISHED возвращаться в WAITING (default 5000).
-- `COLLECTIBLE_COUNT` — число коллектаблов (default 10).
+- `COLLECTIBLE_COUNT` — число коллектаблов (default 0, выкл).
 - Сообщение `RESTART` (доступно при ALLOW_DEBUG=true) — сброс матча/позиций/коллектаблов, кулдаун 1s.
