@@ -704,7 +704,7 @@ const ballState = {
   radius: ARENA.ballRadius,
 };
 
-const GAME = { state: 'running', collected: 0, totalCollectibles: 10 };
+const GAME = { state: 'running', collected: 0, totalCollectibles: 0 }; // default 0 to mimic core TMA demo (single ball)
 const collectibles = [];
 
 const input = {
@@ -1038,6 +1038,7 @@ function randomCollectiblePosition() {
 
 function spawnCollectibles() {
   if (net.enabled) return;
+  if (GAME.totalCollectibles <= 0) return;
   clearCollectibles();
   GAME.collected = 0;
   for (let i = 0; i < GAME.totalCollectibles; i += 1) {
@@ -1077,6 +1078,11 @@ function collectItem(item) {
 }
 
 function updateCollectibles(dt) {
+  if (GAME.totalCollectibles <= 0) {
+    const marker = getNearestMarker();
+    if (marker) marker.visible = false;
+    return;
+  }
   const local = players.find((p) => p.isLocal);
   if (!local) return;
   let nearest = null;
@@ -1662,23 +1668,26 @@ function updateHud() {
       scoreEl.style.display = '';
     }
     if (collectBoard) {
-      collectBoard.style.display = 'grid';
+      const hasCollect = (net.collect?.total || 0) > 0;
+      collectBoard.style.display = hasCollect ? 'grid' : 'none';
       collectBoard.replaceChildren();
-      const entries = Object.entries(net.collect?.score || {}).sort((a, b) => (b[1] || 0) - (a[1] || 0));
-      if (entries.length) {
-        entries.forEach(([pid, cnt]) => {
-          const rowName = document.createElement('div');
-          const rowScore = document.createElement('div');
-          const playerMeta = net.players.get(pid);
-          const displayName = playerMeta?.username || pid;
-          const side = playerMeta?.side;
-          rowName.textContent = pid === net.id ? `${displayName} (you)` : displayName;
-          if (side) rowName.style.color = sideHex(side);
-          rowScore.textContent = `${cnt} collected${side ? ` • ${side}` : ''}`;
-          collectBoard.append(rowName, rowScore);
-        });
-      } else {
-        collectBoard.textContent = 'Collecting...';
+      if (hasCollect) {
+        const entries = Object.entries(net.collect?.score || {}).sort((a, b) => (b[1] || 0) - (a[1] || 0));
+        if (entries.length) {
+          entries.forEach(([pid, cnt]) => {
+            const rowName = document.createElement('div');
+            const rowScore = document.createElement('div');
+            const playerMeta = net.players.get(pid);
+            const displayName = playerMeta?.username || pid;
+            const side = playerMeta?.side;
+            rowName.textContent = pid === net.id ? `${displayName} (you)` : displayName;
+            if (side) rowName.style.color = sideHex(side);
+            rowScore.textContent = `${cnt} collected${side ? ` • ${side}` : ''}`;
+            collectBoard.append(rowName, rowScore);
+          });
+        } else {
+          collectBoard.textContent = 'Collecting...';
+        }
       }
     }
     if (playerBoard) {
