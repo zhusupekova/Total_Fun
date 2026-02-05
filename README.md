@@ -65,3 +65,6 @@ npm run server:start          # PORT=7071 по умолчанию
 - Online: запустить сервер и подключить `/game?ws=ws://localhost:7071`.
 - Smoke WS: `npm run smoke:ws -- --url=ws://localhost:7071`.
 - CI локальный: `npm run test:all` (lint + build + Playwright).
+
+## Документы
+- Техническое задание: `docs/brief/ТЕХНИЧЕСКОЕ ЗАДАНИЕ.pdf` (оригинал также в `.docx` в той же папке).
