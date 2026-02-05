@@ -14,8 +14,8 @@ app.appendChild(renderer.domElement);
 document.documentElement.style.overscrollBehavior = 'none';
 document.body.style.overscrollBehavior = 'none';
 
-const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(0, 9.5, 12);
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 9, 12.5);
 camera.lookAt(0, 0, 0);
 
 const ambient = new THREE.AmbientLight(0x9fb7ff, 0.62);
@@ -171,8 +171,16 @@ function prefabForSide(side) {
 function createArena() {
   const group = new THREE.Group();
 
+  // outer ring (dark)
+  const outerGeom = new THREE.PlaneGeometry(ARENA.width + 2, ARENA.height + 2);
+  const outerMat = new THREE.MeshStandardMaterial({ color: 0x131b21, roughness: 0.9, metalness: 0.05 });
+  const outer = new THREE.Mesh(outerGeom, outerMat);
+  outer.rotation.x = -Math.PI / 2;
+  outer.position.y = -0.005;
+  group.add(outer);
+
   // main floor
-  const floorGeom = new THREE.PlaneGeometry(ARENA.width, ARENA.height);
+  const floorGeom = new THREE.PlaneGeometry(ARENA.width * 0.92, ARENA.height * 0.92);
   const floorCanvas = document.createElement('canvas');
   floorCanvas.width = 1024;
   floorCanvas.height = 1024;
@@ -217,16 +225,16 @@ function createArena() {
   const railMat = new THREE.MeshStandardMaterial({ map: railTex, emissive: 0x00b7b2, emissiveIntensity: 0.5, metalness: 0.12, roughness: 0.5 });
   const railH = 0.4;
   const railT = 0.35;
-  const railGeomH = new THREE.BoxGeometry(ARENA.width + railT * 2.2, railH, railT);
-  const railGeomV = new THREE.BoxGeometry(railT, railH, ARENA.height + railT * 2.2);
+  const railGeomH = new THREE.BoxGeometry(ARENA.width * 0.92 + railT * 1.2, railH, railT);
+  const railGeomV = new THREE.BoxGeometry(railT, railH, ARENA.height * 0.92 + railT * 1.2);
   const railTop = new THREE.Mesh(railGeomH, railMat);
-  railTop.position.set(0, railH / 2, -ARENA.height / 2 - railT * 0.6);
+  railTop.position.set(0, railH / 2, -ARENA.height * 0.46);
   const railBottom = railTop.clone();
-  railBottom.position.z = ARENA.height / 2 + railT * 0.6;
+  railBottom.position.z = ARENA.height * 0.46;
   const railLeft = new THREE.Mesh(railGeomV, railMat);
-  railLeft.position.set(-ARENA.width / 2 - railT * 0.6, railH / 2, 0);
+  railLeft.position.set(-ARENA.width * 0.46, railH / 2, 0);
   const railRight = railLeft.clone();
-  railRight.position.x = ARENA.width / 2 + railT * 0.6;
+  railRight.position.x = ARENA.width * 0.46;
   [railTop, railBottom, railLeft, railRight].forEach((r) => {
     r.castShadow = true;
     r.receiveShadow = true;
@@ -234,21 +242,21 @@ function createArena() {
   });
 
   // outer wall
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0x33435d, metalness: 0.15, roughness: 0.55 });
-  const wallThickness = 0.45;
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x2b3646, metalness: 0.18, roughness: 0.6 });
+  const wallThickness = 0.4;
   const wallHeight = ARENA.wallHeight;
-  const edgeGeomH = new THREE.BoxGeometry(ARENA.width + wallThickness * 2, wallHeight, wallThickness);
-  const edgeGeomV = new THREE.BoxGeometry(wallThickness, wallHeight, ARENA.height + wallThickness * 2);
+  const edgeGeomH = new THREE.BoxGeometry(ARENA.width * 0.98, wallHeight, wallThickness);
+  const edgeGeomV = new THREE.BoxGeometry(wallThickness, wallHeight, ARENA.height * 0.98);
 
   const topWall = new THREE.Mesh(edgeGeomH, wallMat);
-  topWall.position.set(0, wallHeight / 2, -ARENA.height / 2 - wallThickness / 2);
+  topWall.position.set(0, wallHeight / 2, -ARENA.height * 0.5);
   const bottomWall = topWall.clone();
-  bottomWall.position.z = ARENA.height / 2 + wallThickness / 2;
+  bottomWall.position.z = ARENA.height * 0.5;
 
   const leftWall = new THREE.Mesh(edgeGeomV, wallMat);
-  leftWall.position.set(-ARENA.width / 2 - wallThickness / 2, wallHeight / 2, 0);
+  leftWall.position.set(-ARENA.width * 0.5, wallHeight / 2, 0);
   const rightWall = leftWall.clone();
-  rightWall.position.x = ARENA.width / 2 + wallThickness / 2;
+  rightWall.position.x = ARENA.width * 0.5;
 
   [topWall, bottomWall, leftWall, rightWall].forEach((wall) => {
     wall.castShadow = true;
