@@ -53,10 +53,10 @@ const ASSETS = {
   ball: '/assets/ball.glb',
   playerFallback: '/assets/player.glb',
   players: {
-    top: '/assets/players/Meshy_AI_Cat_Detective_0203064407_texture.glb',
-    right: '/assets/players/Meshy_AI_dog_0203093729_texture.glb',
-    bottom: '/assets/players/Meshy_AI_Cool_Duck_Vibes_0203063908_texture.glb',
-    left: '/assets/players/Meshy_AI_Pigeon_Swag_0203091842_texture.glb',
+    top: '/assets/player_cat.glb',
+    right: '/assets/player_dog.glb',
+    bottom: '/assets/player_duck.glb',
+    left: '/assets/player_pigeon.glb',
   },
 };
 const playerPrefabs = new Map();
