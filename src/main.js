@@ -14,8 +14,8 @@ app.appendChild(renderer.domElement);
 document.documentElement.style.overscrollBehavior = 'none';
 document.body.style.overscrollBehavior = 'none';
 
-const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(0, 9, 12.5);
+const camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 8.4, 11.5);
 camera.lookAt(0, 0, 0);
 
 const ambient = new THREE.AmbientLight(0x9fb7ff, 0.62);
@@ -172,29 +172,29 @@ function createArena() {
   const group = new THREE.Group();
 
   // outer ring (dark)
-  const outerGeom = new THREE.PlaneGeometry(ARENA.width + 2, ARENA.height + 2);
-  const outerMat = new THREE.MeshStandardMaterial({ color: 0x131b21, roughness: 0.9, metalness: 0.05 });
+  const outerGeom = new THREE.PlaneGeometry(ARENA.width + 3, ARENA.height + 3);
+  const outerMat = new THREE.MeshStandardMaterial({ color: 0x1b2226, roughness: 0.9, metalness: 0.04 });
   const outer = new THREE.Mesh(outerGeom, outerMat);
   outer.rotation.x = -Math.PI / 2;
   outer.position.y = -0.005;
   group.add(outer);
 
   // main floor
-  const floorGeom = new THREE.PlaneGeometry(ARENA.width * 0.92, ARENA.height * 0.92);
+  const floorGeom = new THREE.PlaneGeometry(ARENA.width * 0.9, ARENA.height * 0.9);
   const floorCanvas = document.createElement('canvas');
   floorCanvas.width = 1024;
   floorCanvas.height = 1024;
   const fctx = floorCanvas.getContext('2d');
-  fctx.fillStyle = '#d8d3c6';
+  fctx.fillStyle = '#d6d0c4';
   fctx.fillRect(0, 0, 1024, 1024);
-  fctx.fillStyle = '#cfc8bc';
-  for (let i = 0; i < 10; i++) {
-    const w = 340 + Math.random() * 140;
-    const h = 140 + Math.random() * 110;
+  fctx.fillStyle = '#ccc5b8';
+  for (let i = 0; i < 8; i++) {
+    const w = 380 + Math.random() * 120;
+    const h = 120 + Math.random() * 90;
     const x = Math.random() * (1024 - w);
     const y = Math.random() * (1024 - h);
     fctx.beginPath();
-    fctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, Math.random() * 0.6, 0, Math.PI * 2);
+    fctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, Math.random() * 0.4, 0, Math.PI * 2);
     fctx.fill();
   }
   const floorTex = new THREE.CanvasTexture(floorCanvas);
@@ -213,9 +213,9 @@ function createArena() {
   const rctx = railCanvas.getContext('2d');
   rctx.fillStyle = '#0c1621';
   rctx.fillRect(0, 0, 256, 64);
-  rctx.fillStyle = '#1dd0c0';
-  for (let i = 0; i < 12; i++) {
-    rctx.roundRect(8 + i * 20, 12, 14, 40, 4);
+  rctx.fillStyle = '#12c6c3';
+  for (let i = 0; i < 14; i++) {
+    rctx.roundRect(6 + i * 18, 10, 14, 44, 4);
     rctx.fill();
   }
   const railTex = new THREE.CanvasTexture(railCanvas);
@@ -223,18 +223,18 @@ function createArena() {
   railTex.repeat.set(20, 1);
 
   const railMat = new THREE.MeshStandardMaterial({ map: railTex, emissive: 0x00b7b2, emissiveIntensity: 0.5, metalness: 0.12, roughness: 0.5 });
-  const railH = 0.4;
-  const railT = 0.35;
-  const railGeomH = new THREE.BoxGeometry(ARENA.width * 0.92 + railT * 1.2, railH, railT);
-  const railGeomV = new THREE.BoxGeometry(railT, railH, ARENA.height * 0.92 + railT * 1.2);
+  const railH = 0.36;
+  const railT = 0.3;
+  const railGeomH = new THREE.BoxGeometry(ARENA.width * 0.9 + railT * 1.2, railH, railT);
+  const railGeomV = new THREE.BoxGeometry(railT, railH, ARENA.height * 0.9 + railT * 1.2);
   const railTop = new THREE.Mesh(railGeomH, railMat);
-  railTop.position.set(0, railH / 2, -ARENA.height * 0.46);
+  railTop.position.set(0, railH / 2, -ARENA.height * 0.45);
   const railBottom = railTop.clone();
-  railBottom.position.z = ARENA.height * 0.46;
+  railBottom.position.z = ARENA.height * 0.45;
   const railLeft = new THREE.Mesh(railGeomV, railMat);
-  railLeft.position.set(-ARENA.width * 0.46, railH / 2, 0);
+  railLeft.position.set(-ARENA.width * 0.45, railH / 2, 0);
   const railRight = railLeft.clone();
-  railRight.position.x = ARENA.width * 0.46;
+  railRight.position.x = ARENA.width * 0.45;
   [railTop, railBottom, railLeft, railRight].forEach((r) => {
     r.castShadow = true;
     r.receiveShadow = true;
