@@ -264,40 +264,69 @@ function createArena() {
     group.add(wall);
   });
 
-  // corner pods and mid structures (simplified)
-  const podGeom = new THREE.CylinderGeometry(1.2, 1.2, 0.7, 22);
-  const podMat = new THREE.MeshStandardMaterial({ color: 0x6ba8d9, metalness: 0.25, roughness: 0.5 });
-  const podPositions = [
-    [-ARENA.width / 2 - 2.2, -ARENA.height / 2 - 2.2],
-    [ARENA.width / 2 + 2.2, -ARENA.height / 2 - 2.2],
-    [-ARENA.width / 2 - 2.2, ARENA.height / 2 + 2.2],
-    [ARENA.width / 2 + 2.2, ARENA.height / 2 + 2.2],
+  // corner drums (cylinders)
+  const drumMat = new THREE.MeshStandardMaterial({ color: 0x8ea3c3, metalness: 0.2, roughness: 0.65 });
+  const drumRimMat = new THREE.MeshStandardMaterial({ color: 0xc0d6f2, metalness: 0.15, roughness: 0.5 });
+  const drumRadius = 1.4;
+  const drumHeight = 0.6;
+  const drumGeom = new THREE.CylinderGeometry(drumRadius, drumRadius, drumHeight, 32);
+  const drumTopGeom = new THREE.CircleGeometry(drumRadius * 0.9, 32);
+  const drumPositions = [
+    { x: -ARENA.width * 0.55, z: -ARENA.height * 0.55 },
+    { x: ARENA.width * 0.55, z: -ARENA.height * 0.55 },
+    { x: -ARENA.width * 0.55, z: ARENA.height * 0.55 },
+    { x: ARENA.width * 0.55, z: ARENA.height * 0.55 },
   ];
-  podPositions.forEach(([x, z]) => {
-    const pod = new THREE.Mesh(podGeom, podMat);
-    pod.position.set(x, 0.35, z);
-    pod.castShadow = true;
-    pod.receiveShadow = true;
-    group.add(pod);
+  drumPositions.forEach((p) => {
+    const drum = new THREE.Mesh(drumGeom, drumMat);
+    drum.position.set(p.x, drumHeight / 2, p.z);
+    const top = new THREE.Mesh(drumTopGeom, drumRimMat);
+    top.rotation.x = -Math.PI / 2;
+    top.position.set(p.x, drumHeight / 2 + 0.001, p.z);
+    const rim = new THREE.Mesh(
+      new THREE.RingGeometry(drumRadius * 0.78, drumRadius * 0.95, 32),
+      new THREE.MeshBasicMaterial({ color: 0x91a9c8, side: THREE.DoubleSide })
+    );
+    rim.rotation.x = -Math.PI / 2;
+    rim.position.set(p.x, drumHeight / 2 + 0.002, p.z);
+    group.add(drum, top, rim);
   });
 
-  // triangular floor markers
-  const triGeom = new THREE.ConeGeometry(0.7, 0.05, 3);
-  const triMat = new THREE.MeshStandardMaterial({ color: 0x2f3c4f, metalness: 0.1, roughness: 0.6 });
-  const triOffsets = [
-    [-ARENA.width * 0.3, -ARENA.height * 0.05],
-    [ARENA.width * 0.3, ARENA.height * 0.05],
-    [ARENA.width * 0.1, -ARENA.height * 0.3],
-    [-ARENA.width * 0.1, ARENA.height * 0.3],
+  // spawn discs (side platforms)
+  const spawnRadius = 1.15;
+  const spawnH = 0.25;
+  const spawnGeom = new THREE.CylinderGeometry(spawnRadius, spawnRadius, spawnH, 32);
+  const spawnTopGeom = new THREE.CircleGeometry(spawnRadius * 0.9, 32);
+  const spawnTopMat = new THREE.MeshStandardMaterial({ color: 0x5fb4ff, emissive: 0x1b6fb5, emissiveIntensity: 0.25, roughness: 0.4, metalness: 0.1 });
+  const spawnBaseMat = new THREE.MeshStandardMaterial({ color: 0x243447, roughness: 0.6, metalness: 0.15 });
+  const spawnPoints = [
+    { x: 0, z: -ARENA.height / 2 - 0.2 },
+    { x: 0, z: ARENA.height / 2 + 0.2 },
+    { x: -ARENA.width / 2 - 0.2, z: 0 },
+    { x: ARENA.width / 2 + 0.2, z: 0 },
   ];
-  triOffsets.forEach(([x, z], idx) => {
-    const tri = new THREE.Mesh(triGeom, triMat);
-    tri.rotation.x = Math.PI / 2;
-    tri.rotation.z = idx % 2 === 0 ? 0 : Math.PI;
-    tri.position.set(x, 0.03, z);
-    tri.castShadow = false;
-    tri.receiveShadow = false;
-    group.add(tri);
+  spawnPoints.forEach((p) => {
+    const base = new THREE.Mesh(spawnGeom, spawnBaseMat);
+    base.position.set(p.x, spawnH / 2, p.z);
+    const cap = new THREE.Mesh(spawnTopGeom, spawnTopMat);
+    cap.rotation.x = -Math.PI / 2;
+    cap.position.set(p.x, spawnH + 0.001, p.z);
+    group.add(base, cap);
+  });
+
+  // floor vents / triangles
+  const ventMat = new THREE.MeshStandardMaterial({ color: 0x4d565f, roughness: 0.5, metalness: 0.2 });
+  const ventGeom = new THREE.ConeGeometry(0.9, 0.12, 3);
+  const vents = [
+    { x: -ARENA.width * 0.18, z: -ARENA.height * 0.12, rot: Math.PI },
+    { x: ARENA.width * 0.22, z: ARENA.height * 0.05, rot: 0 },
+    { x: -ARENA.width * 0.22, z: ARENA.height * 0.28, rot: Math.PI / 3 },
+  ];
+  vents.forEach((v) => {
+    const vent = new THREE.Mesh(ventGeom, ventMat);
+    vent.rotation.set(Math.PI, 0, v.rot);
+    vent.position.set(v.x, 0.06, v.z);
+    group.add(vent);
   });
 
   scene.add(group);

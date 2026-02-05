@@ -160,11 +160,21 @@ function normalizeDir(input = {}) {
 }
 
 function kickOffBall() {
-  const ang = Math.random() * Math.PI * 2;
-  state.ball.vx = Math.cos(ang) * BALL.baseSpeed;
-  state.ball.vz = Math.sin(ang) * BALL.baseSpeed;
-  state.ball.x = 0;
-  state.ball.z = 0;
+  // spawn from one of four side platforms, shoot toward center
+  const spawnPoints = [
+    { x: 0, z: -ARENA.height / 2 - 0.2 },
+    { x: 0, z: ARENA.height / 2 + 0.2 },
+    { x: -ARENA.width / 2 - 0.2, z: 0 },
+    { x: ARENA.width / 2 + 0.2, z: 0 },
+  ];
+  const origin = spawnPoints[Math.floor(Math.random() * spawnPoints.length)];
+  state.ball.x = origin.x;
+  state.ball.z = origin.z;
+  const dirX = -origin.x;
+  const dirZ = -origin.z;
+  const len = Math.hypot(dirX, dirZ) || 1;
+  state.ball.vx = (dirX / len) * BALL.baseSpeed;
+  state.ball.vz = (dirZ / len) * BALL.baseSpeed;
 }
 
 function collideWalls() {
