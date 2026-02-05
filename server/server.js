@@ -21,7 +21,7 @@ const MAX_CONN_PER_IP = parseInt(process.env.MAX_CONN_PER_IP || '8', 10);
 const CONN_WINDOW_MS = parseInt(process.env.CONN_WINDOW_MS || '10000', 10);
 
 const ARENA = { width: 12, height: 8, playerDepth: 0.6, ballRadius: 0.5 };
-const PLAYER = { speed: 6, collider: { x: 2.2, z: 0.7 } };
+const PLAYER = { speed: 6, collider: { x: 2.5, z: 0.9 } };
 const BALL = {
   minSpeed: 2,
   baseSpeed: 6,

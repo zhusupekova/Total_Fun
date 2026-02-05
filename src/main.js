@@ -14,15 +14,15 @@ app.appendChild(renderer.domElement);
 document.documentElement.style.overscrollBehavior = 'none';
 document.body.style.overscrollBehavior = 'none';
 
-const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(0, 13, 15);
+const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 9.5, 12);
 camera.lookAt(0, 0, 0);
 
-const ambient = new THREE.AmbientLight(0x9fb7ff, 0.55);
+const ambient = new THREE.AmbientLight(0x9fb7ff, 0.62);
 scene.add(ambient);
 
 const dir = new THREE.DirectionalLight(0xffffff, 1.05);
-dir.position.set(10, 16, 9);
+dir.position.set(8, 14, 7);
 dir.castShadow = false;
 scene.add(dir);
 
@@ -177,16 +177,16 @@ function createArena() {
   floorCanvas.width = 1024;
   floorCanvas.height = 1024;
   const fctx = floorCanvas.getContext('2d');
-  fctx.fillStyle = '#d7d3c9';
+  fctx.fillStyle = '#d8d3c6';
   fctx.fillRect(0, 0, 1024, 1024);
   fctx.fillStyle = '#cfc8bc';
-  for (let i = 0; i < 12; i++) {
-    const w = 320 + Math.random() * 180;
-    const h = 160 + Math.random() * 120;
+  for (let i = 0; i < 10; i++) {
+    const w = 340 + Math.random() * 140;
+    const h = 140 + Math.random() * 110;
     const x = Math.random() * (1024 - w);
     const y = Math.random() * (1024 - h);
     fctx.beginPath();
-    fctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, Math.random() * 0.8, 0, Math.PI * 2);
+    fctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, Math.random() * 0.6, 0, Math.PI * 2);
     fctx.fill();
   }
   const floorTex = new THREE.CanvasTexture(floorCanvas);
@@ -205,28 +205,28 @@ function createArena() {
   const rctx = railCanvas.getContext('2d');
   rctx.fillStyle = '#0c1621';
   rctx.fillRect(0, 0, 256, 64);
-  rctx.fillStyle = '#22d4d1';
-  for (let i = 0; i < 10; i++) {
-    rctx.roundRect(10 + i * 24, 14, 16, 36, 4);
+  rctx.fillStyle = '#1dd0c0';
+  for (let i = 0; i < 12; i++) {
+    rctx.roundRect(8 + i * 20, 12, 14, 40, 4);
     rctx.fill();
   }
   const railTex = new THREE.CanvasTexture(railCanvas);
   railTex.wrapS = railTex.wrapT = THREE.RepeatWrapping;
   railTex.repeat.set(20, 1);
 
-  const railMat = new THREE.MeshStandardMaterial({ map: railTex, emissive: 0x0c9fb5, emissiveIntensity: 0.45, metalness: 0.15, roughness: 0.45 });
-  const railH = 0.38;
-  const railT = 0.32;
-  const railGeomH = new THREE.BoxGeometry(ARENA.width + railT * 2, railH, railT);
-  const railGeomV = new THREE.BoxGeometry(railT, railH, ARENA.height + railT * 2);
+  const railMat = new THREE.MeshStandardMaterial({ map: railTex, emissive: 0x00b7b2, emissiveIntensity: 0.5, metalness: 0.12, roughness: 0.5 });
+  const railH = 0.4;
+  const railT = 0.35;
+  const railGeomH = new THREE.BoxGeometry(ARENA.width + railT * 2.2, railH, railT);
+  const railGeomV = new THREE.BoxGeometry(railT, railH, ARENA.height + railT * 2.2);
   const railTop = new THREE.Mesh(railGeomH, railMat);
-  railTop.position.set(0, railH / 2, -ARENA.height / 2 - railT / 2);
+  railTop.position.set(0, railH / 2, -ARENA.height / 2 - railT * 0.6);
   const railBottom = railTop.clone();
-  railBottom.position.z = ARENA.height / 2 + railT / 2;
+  railBottom.position.z = ARENA.height / 2 + railT * 0.6;
   const railLeft = new THREE.Mesh(railGeomV, railMat);
-  railLeft.position.set(-ARENA.width / 2 - railT / 2, railH / 2, 0);
+  railLeft.position.set(-ARENA.width / 2 - railT * 0.6, railH / 2, 0);
   const railRight = railLeft.clone();
-  railRight.position.x = ARENA.width / 2 + railT / 2;
+  railRight.position.x = ARENA.width / 2 + railT * 0.6;
   [railTop, railBottom, railLeft, railRight].forEach((r) => {
     r.castShadow = true;
     r.receiveShadow = true;
@@ -234,8 +234,8 @@ function createArena() {
   });
 
   // outer wall
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0x2b3d64, metalness: 0.2, roughness: 0.5 });
-  const wallThickness = 0.6;
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x33435d, metalness: 0.15, roughness: 0.55 });
+  const wallThickness = 0.45;
   const wallHeight = ARENA.wallHeight;
   const edgeGeomH = new THREE.BoxGeometry(ARENA.width + wallThickness * 2, wallHeight, wallThickness);
   const edgeGeomV = new THREE.BoxGeometry(wallThickness, wallHeight, ARENA.height + wallThickness * 2);
@@ -319,7 +319,7 @@ function createPlayer(colorIndex, side) {
   if (prefab) {
     const cloned = cloneSkinned(prefab);
     enableShadows(cloned);
-    cloned.scale.multiplyScalar(1.15);
+    cloned.scale.multiplyScalar(1.25);
     cloned.rotation.y = sideYaw[side] ?? 0;
     cloned.userData.side = side;
     return cloned;
