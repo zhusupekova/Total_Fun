@@ -45,12 +45,6 @@ const PHYSICS = {
   maxSpeed: 12,
   damping: 0.995,
 };
-const MAGNETS = [
-  { center: new THREE.Vector2(-6.5, -3.5), radius: 2, strength: 4, enabled: true },
-  { center: new THREE.Vector2(6.5, -3.5), radius: 2, strength: 4, enabled: true },
-  { center: new THREE.Vector2(6.5, 3.5), radius: 2, strength: 4, enabled: true },
-  { center: new THREE.Vector2(-6.5, 3.5), radius: 2, strength: 4, enabled: true },
-];
 const READY_DURATION_MS = 2000;
 let readyEndsAt = null;
 const MAX_RECONNECT_ATTEMPTS = 8;
@@ -59,20 +53,19 @@ const ASSETS = {
   ball: '/assets/ball.glb',
   playerFallback: '/assets/player.glb',
   players: {
-    top: '/assets/player_cat.glb',
-    right: '/assets/player_dog.glb',
-    bottom: '/assets/player_duck.glb',
-    left: '/assets/player_pigeon.glb',
+    top: '/assets/players/Meshy_AI_Cat_Detective_0203064407_texture.glb',
+    right: '/assets/players/Meshy_AI_dog_0203093729_texture.glb',
+    bottom: '/assets/players/Meshy_AI_Cool_Duck_Vibes_0203063908_texture.glb',
+    left: '/assets/players/Meshy_AI_Pigeon_Swag_0203091842_texture.glb',
   },
 };
 const playerPrefabs = new Map();
 let playerFallbackPrefab = null;
+const TARGET_PLAYER_SIZE = { x: 2.2, z: 0.7 };
 const params = new URLSearchParams(window.location.search);
 const envWs = process.env.NEXT_PUBLIC_WS;
 const storedWs = typeof localStorage !== 'undefined' ? localStorage.getItem('tf_ws_url') : null;
-const wsUrl = params.get('ws') || envWs || storedWs;
-const magnetsEnabled = params.get('magnets') !== 'off';
-const debugUI = params.get('debug') === '1';
+const wsUrl = params.get('ws') || envWs || storedWs || 'ws://localhost:7071';
 
 // Telegram Mini App bootstrap with graceful fallback
 const tg = window.Telegram?.WebApp;
@@ -94,13 +87,12 @@ if (tg) {
     console.warn('Telegram WebApp init failed', err);
   }
 }
-MAGNETS.forEach((m) => { m.enabled = magnetsEnabled; });
 const audioContext = typeof AudioContext !== 'undefined' ? new AudioContext() : null;
 const sfxBuffers = new Map();
 let audioUnlocked = false;
 const audioState = { enabled: true };
 const net = {
-  enabled: !!wsUrl,
+  enabled: true,
   wsUrl: wsUrl || 'ws://localhost:7071',
   ws: null,
   connected: false,
@@ -126,9 +118,7 @@ const net = {
   manualRetry: false,
   snapshotIntervalMs: 33,
   errorMessage: '',
-  score: {},
   avgPing: null,
-  collect: { total: 0, collected: 0, score: {}, items: [] },
 };
 const gltfLoader = new GLTFLoader();
 const texLoader = new THREE.TextureLoader();
@@ -155,27 +145,6 @@ function resolveIdentity() {
 
 net.identity = resolveIdentity();
 
-const magnetVisuals = [];
-let nearestMarker = null;
-function createMagnetMarkers() {
-  magnetVisuals.forEach((m) => scene.remove(m));
-  magnetVisuals.length = 0;
-  MAGNETS.filter((m) => m.enabled).forEach((mag) => {
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(mag.radius * 0.65, mag.radius, 32),
-      new THREE.MeshBasicMaterial({ color: 0x4ee0ff, opacity: 0.2, transparent: true })
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.set(mag.center.x, 0.02, mag.center.y);
-    const pillar = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.05, 0.05, 0.5, 10),
-      new THREE.MeshBasicMaterial({ color: 0x4ee0ff, opacity: 0.4, transparent: true })
-    );
-    pillar.position.set(mag.center.x, 0.25, mag.center.y);
-    scene.add(ring, pillar);
-    magnetVisuals.push(ring, pillar);
-  });
-}
 
 function enableShadows(object) {
   object.traverse((child) => {
@@ -595,8 +564,7 @@ function applyPrefabsToExistingPlayers() {
   });
 }
 
-initOfflinePlayers();
-createMagnetMarkers();
+// players are spawned upon receiving snapshots from server
 
 function playerDefaultPosition(side) {
   const zone = SIDE_ZONES[side];
@@ -675,20 +643,6 @@ function makeBlobShadow(radius = 1) {
 const shadowMesh = makeBlobShadow(0.9);
 scene.add(shadowMesh);
 
-function getNearestMarker() {
-  if (nearestMarker) return nearestMarker;
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.7, 1, 32),
-    new THREE.MeshBasicMaterial({ color: 0x1ee0d7, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false })
-  );
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.15;
-  ring.visible = false;
-  scene.add(ring);
-  nearestMarker = ring;
-  return ring;
-}
-
 function setBallRadiusFromObject(object) {
   const box = new THREE.Box3().setFromObject(object);
   const size = new THREE.Vector3();
@@ -704,8 +658,6 @@ const ballState = {
   radius: ARENA.ballRadius,
 };
 
-const GAME = { state: 'running', collected: 0, totalCollectibles: 0 }; // default 0 to mimic core TMA demo (single ball)
-const collectibles = [];
 
 const input = {
   moveX: 0,
@@ -714,7 +666,6 @@ const input = {
   back: false,
   left: false,
   right: false,
-  paused: false,
   touchActive: false,
   dragActive: false,
   source: 'idle',
@@ -753,8 +704,6 @@ window.addEventListener('keydown', (e) => {
   if (['ArrowDown', 'KeyS'].includes(e.code)) { keyState.down = true; e.preventDefault(); }
   if (['ArrowLeft', 'KeyA'].includes(e.code)) { keyState.left = true; e.preventDefault(); }
   if (['ArrowRight', 'KeyD'].includes(e.code)) { keyState.right = true; e.preventDefault(); }
-  if (e.code === 'Space') input.paused = !input.paused;
-  if (e.code === 'KeyR') resetBall();
   recomputeKeyboardVector();
 });
 
@@ -798,6 +747,7 @@ function bindTouchControls() {
   };
 
   root.addEventListener('pointerdown', (e) => {
+    if (pointerId != null && e.pointerId !== pointerId) return; // allow multitouch elsewhere
     e.preventDefault();
     pointerId = e.pointerId;
     root.setPointerCapture(pointerId);
@@ -857,86 +807,21 @@ function bindNetControls() {
   const unlock = () => unlockAudio();
   window.addEventListener('pointerdown', unlock, { once: true });
   window.addEventListener('touchstart', unlock, { once: true });
-  const input = document.getElementById('ws-url');
-  const btnConnect = document.getElementById('btn-connect');
-  const btnDisconnect = document.getElementById('btn-disconnect');
-  const btnAudio = document.getElementById('audio-toggle');
-  const btnRetry = document.getElementById('btn-retry');
-  if (input && net.wsUrl) input.value = net.wsUrl;
-  if (btnConnect) {
-    btnConnect.addEventListener('click', () => {
-      const url = input?.value?.trim() || net.wsUrl;
-      net.manualRetry = false;
-      if (url && typeof localStorage !== 'undefined') {
-        try { localStorage.setItem('tf_ws_url', url); } catch {}
-      }
-      startNet(url);
-    });
-  }
-  if (btnDisconnect) {
-    btnDisconnect.addEventListener('click', () => {
-      net.manualRetry = false;
-      stopNet();
-    });
-  }
-  if (btnRetry) {
-    btnRetry.addEventListener('click', () => {
-      const url = input?.value?.trim() || net.wsUrl;
-      net.manualRetry = true;
-      stopNet();
-      net.shouldReconnect = true;
-      startNet(url);
-      net.manualRetry = false;
-    });
-  }
   const ctaRetry = document.getElementById('cta-retry');
   if (ctaRetry) {
     ctaRetry.addEventListener('click', () => {
-      const url = input?.value?.trim() || net.wsUrl;
       net.manualRetry = true;
       stopNet();
       net.shouldReconnect = true;
-      startNet(url);
+      startNet(net.wsUrl);
       net.manualRetry = false;
       ctaRetry.style.display = 'none';
     });
   }
-  if (btnAudio) {
-    const refresh = () => {
-      btnAudio.textContent = `Sound: ${audioState.enabled ? 'on' : 'off'}`;
-    };
-    btnAudio.addEventListener('click', () => {
-      audioState.enabled = !audioState.enabled;
-      refresh();
-    });
-    refresh();
-  }
 }
 
 function bindGameUiControls() {
-  const btnStart = document.getElementById('btn-start');
-  const btnReset = document.getElementById('btn-reset');
-  const btnRestart = document.getElementById('btn-restart');
-  if (btnStart) {
-    btnStart.addEventListener('click', () => {
-      if (net.enabled) return;
-      resetOfflineSession();
-      updateHud();
-    });
-  }
-  if (btnReset) {
-    btnReset.addEventListener('click', () => {
-      if (net.enabled) return;
-      resetOfflineSession();
-      updateHud();
-    });
-  }
-  if (btnRestart) {
-    btnRestart.addEventListener('click', () => {
-      if (!net.enabled || !net.connected || !net.ws) return;
-      net.ws.send(JSON.stringify({ type: 'RESTART' }));
-    });
-  }
+  // no local start/reset controls in MVP
 }
 
 function applyConfigFromServer(cfg = {}) {
@@ -948,18 +833,6 @@ function applyConfigFromServer(cfg = {}) {
     ballState.radius = ARENA.ballRadius;
   }
   const phys = cfg.physics;
-  if (phys?.magnets) {
-    MAGNETS.forEach((m) => (m.enabled = false));
-    phys.magnets.forEach((m, idx) => {
-      if (MAGNETS[idx]) {
-        MAGNETS[idx].enabled = !!m.enabled;
-        MAGNETS[idx].radius = m.radius;
-        MAGNETS[idx].strength = m.strength;
-        MAGNETS[idx].center.set(m.center.x, m.center.z);
-      }
-    });
-    createMagnetMarkers();
-  }
   if (phys?.player) {
     PLAYER.collider = phys.player.collider || PLAYER.collider;
     PLAYER.speed = phys.player.speed || PLAYER.speed;
@@ -969,30 +842,16 @@ function applyConfigFromServer(cfg = {}) {
     PHYSICS.maxSpeed = phys.ball.maxSpeed ?? PHYSICS.maxSpeed;
     PHYSICS.damping = phys.ball.damping ?? PHYSICS.damping;
   }
-  if (cfg.scoreToWin != null) {
-    window.SERVER_CONFIG = window.SERVER_CONFIG || {};
-    window.SERVER_CONFIG.scoreToWin = cfg.scoreToWin;
-  }
   if (cfg.roomTimeoutMs != null) {
     window.SERVER_CONFIG = window.SERVER_CONFIG || {};
     window.SERVER_CONFIG.roomTimeoutMs = cfg.roomTimeoutMs;
   }
 }
 
-function applyDebugUi() {
-  const debugEls = document.querySelectorAll('.debug-only');
-  debugEls.forEach((el) => {
-    el.style.display = debugUI ? '' : 'none';
-  });
-  const netPanel = document.getElementById('net-panel');
-  if (netPanel) netPanel.style.display = debugUI ? 'grid' : 'none';
-}
+function applyDebugUi() {}
 
 function resetBall() {
-  if (debugUI && net.enabled && net.connected && net.ws && net.ws.readyState === WebSocket.OPEN) {
-    net.ws.send(JSON.stringify({ type: 'DEBUG', payload: { cmd: 'RESET_BALL' } }));
-    return;
-  }
+  if (net.connected) return;
   ballMesh.position.set(0, ballState.radius, 0);
   shadowMesh.position.x = ballMesh.position.x;
   shadowMesh.position.z = ballMesh.position.z;
@@ -1003,127 +862,6 @@ function resetBall() {
 
 resetBall();
 
-function clearCollectibles() {
-  collectibles.forEach((c) => scene.remove(c));
-  collectibles.length = 0;
-}
-
-function makeCollectibleMesh(idx = 0, total = GAME.totalCollectibles) {
-  const group = new THREE.Group();
-  const hue = 0.12 + (idx / Math.max(total, 1)) * 0.6;
-  const color = new THREE.Color().setHSL(hue, 0.6, 0.6);
-  const gem = new THREE.Mesh(
-    new THREE.IcosahedronGeometry(0.35, 1),
-    new THREE.MeshStandardMaterial({ color: color.getHex(), metalness: 0.35, roughness: 0.3, emissive: color.multiplyScalar(0.45) })
-  );
-  const halo = new THREE.Mesh(
-    new THREE.SphereGeometry(0.48, 14, 10),
-    new THREE.MeshBasicMaterial({ color: color.getHex(), transparent: true, opacity: 0.16, depthWrite: false })
-  );
-  halo.scale.set(1.2, 1, 1.2);
-  gem.position.y = 0.2;
-  halo.position.y = 0.2;
-  group.add(gem, halo);
-  group.userData = { phase: Math.random() * Math.PI * 2 };
-  return group;
-}
-
-function randomCollectiblePosition() {
-  const marginX = ARENA.width * 0.08 + 0.5;
-  const marginZ = ARENA.height * 0.08 + 0.5;
-  const x = THREE.MathUtils.randFloatSpread(ARENA.width - marginX * 2);
-  const z = THREE.MathUtils.randFloatSpread(ARENA.height - marginZ * 2);
-  return { x, z };
-}
-
-function spawnCollectibles() {
-  if (net.enabled) return;
-  if (GAME.totalCollectibles <= 0) return;
-  clearCollectibles();
-  GAME.collected = 0;
-  for (let i = 0; i < GAME.totalCollectibles; i += 1) {
-    const pos = randomCollectiblePosition();
-    const group = makeCollectibleMesh(i, GAME.totalCollectibles);
-    group.position.set(pos.x, 0.8 + Math.random() * 0.1, pos.z);
-    collectibles.push(group);
-    scene.add(group);
-  }
-}
-
-function syncNetCollectibles(items = [], total = 0, collected = 0) {
-  clearCollectibles();
-  net.collect.items = items;
-  net.collect.total = total || items.length;
-  net.collect.collected = collected;
-  items.forEach((item, idx) => {
-    const mesh = makeCollectibleMesh(idx, Math.max(items.length, total || GAME.totalCollectibles));
-    mesh.position.set(item.x, 0.9, item.z);
-    collectibles.push(mesh);
-    scene.add(mesh);
-  });
-}
-
-function collectItem(item) {
-  if (!item || item.userData.collected) return;
-  item.userData.collected = true;
-  scene.remove(item);
-  const idx = collectibles.indexOf(item);
-  if (idx >= 0) collectibles.splice(idx, 1);
-  GAME.collected += 1;
-  playSfx('goal', 0.65);
-  fireHaptics('medium');
-  if (GAME.collected >= GAME.totalCollectibles) {
-    GAME.state = 'win';
-  }
-}
-
-function updateCollectibles(dt) {
-  if (GAME.totalCollectibles <= 0) {
-    const marker = getNearestMarker();
-    if (marker) marker.visible = false;
-    return;
-  }
-  const local = players.find((p) => p.isLocal);
-  if (!local) return;
-  let nearest = null;
-  let nearestDist = Infinity;
-  for (let i = collectibles.length - 1; i >= 0; i -= 1) {
-    const item = collectibles[i];
-    const phase = (item.userData.phase || 0) + dt * 2.4;
-    item.userData.phase = phase;
-    item.position.y = 0.9 + Math.sin(phase) * 0.12;
-    item.rotation.y += dt * 1.4;
-    const dx = item.position.x - local.mesh.position.x;
-    const dz = item.position.z - local.mesh.position.z;
-    if (Math.hypot(dx, dz) < 1.15) {
-      collectItem(item);
-      continue;
-    }
-    const d2 = dx * dx + dz * dz;
-    if (d2 < nearestDist) {
-      nearestDist = d2;
-      nearest = item.position;
-    }
-  }
-  const marker = getNearestMarker();
-  if (nearest) {
-    marker.visible = true;
-    marker.position.x = nearest.x;
-    marker.position.z = nearest.z;
-    marker.rotation.z += dt * 2;
-  } else {
-    marker.visible = false;
-  }
-}
-
-function resetOfflineSession() {
-  if (net.enabled) return;
-  initOfflinePlayers();
-  resetBall();
-  spawnCollectibles();
-  GAME.state = 'running';
-  setMoveVector(0, 0, 'reset');
-}
 
 function scheduleReconnect() {
   if (!net.shouldReconnect) return;
@@ -1169,10 +907,6 @@ function handleNetMessage(raw) {
         net.snapshotRate = msg.payload.snapshotRate;
         net.snapshotIntervalMs = 1000 / msg.payload.snapshotRate;
       }
-      if (msg.payload?.collect) {
-        net.collect.total = msg.payload.collect.total ?? net.collect.total;
-        net.collect.collected = msg.payload.collect.collected ?? net.collect.collected;
-      }
       if (msg.payload?.arena) {
         ARENA.width = msg.payload.arena.width ?? ARENA.width;
         ARENA.height = msg.payload.arena.height ?? ARENA.height;
@@ -1195,7 +929,6 @@ function handleNetMessage(raw) {
     if (msg.type === 'SNAPSHOT') {
       net.matchState = msg.payload?.matchState || net.matchState;
       net.matchReason = msg.payload?.matchReason || null;
-      net.score = msg.payload?.score || net.score;
       if (!net.hasSnapshot) {
         clearPlayers();
         net.hasSnapshot = true;
@@ -1205,10 +938,6 @@ function handleNetMessage(raw) {
       net.snapshot = msg;
       return;
     }
-    if (msg.type === 'SCORE') {
-      if (msg.payload?.score) net.score = msg.payload.score;
-      return;
-    }
     if (msg.type === 'ERROR') {
       net.error = msg.payload;
       net.connectionState = 'error';
@@ -1216,10 +945,6 @@ function handleNetMessage(raw) {
       if (['BAD_AUTH', 'BAD_HELLO', 'ROOM_FULL'].includes(msg.payload?.code)) {
         net.shouldReconnect = false;
       }
-      return;
-    }
-    if (msg.type === 'SCORE') {
-      if (msg.payload?.score) net.score = msg.payload.score;
       return;
     }
     if (msg.type === 'MATCH_EVENT') {
@@ -1289,14 +1014,13 @@ if (net.enabled) {
 
 function stopNet() {
   net.shouldReconnect = false;
-  net.enabled = false;
   net.connected = false;
   net.id = null;
   net.side = null;
   net.snapshot = null;
   net.latencyMs = null;
   net.hasSnapshot = false;
-  net.matchState = 'OFFLINE';
+  net.matchState = 'DISCONNECTED';
   net.players.clear();
   if (net.reconnectTimer) {
     clearTimeout(net.reconnectTimer);
@@ -1307,17 +1031,10 @@ function stopNet() {
     net.ws = null;
   }
   clearPlayers();
-  initOfflinePlayers();
-  resetBall();
-  GAME.state = 'running';
-  spawnCollectibles();
 }
 
 function startNet(url) {
   if (url) net.wsUrl = url;
-  clearCollectibles();
-  GAME.state = 'idle';
-  GAME.collected = 0;
   net.shouldReconnect = true;
   net.enabled = true;
   net.snapshot = null;
@@ -1336,7 +1053,6 @@ async function hydrateWithGltf() {
     loadSfx('hit_player', '/assets/sfx/hit_player.ogg'),
     loadSfx('hit_wall', '/assets/sfx/hit_wall.ogg'),
     loadSfx('goal', '/assets/sfx/goal.ogg'),
-    loadSfx('magnet', '/assets/sfx/magnet.ogg'),
   ]);
   const fallbackPromise = ASSETS.playerFallback ? loadOptionalGltf(ASSETS.playerFallback) : Promise.resolve(null);
   const playerPromises = Object.entries(ASSETS.players || {}).map(async ([side, url]) => {
@@ -1366,6 +1082,7 @@ async function hydrateWithGltf() {
   playerFallbackPrefab = null;
   if (fallbackGltf) {
     playerFallbackPrefab = fallbackGltf.scene;
+    normalizePrefab(playerFallbackPrefab);
     enableShadows(playerFallbackPrefab);
   }
 
@@ -1373,6 +1090,7 @@ async function hydrateWithGltf() {
   playerResults.forEach(([side, gltf]) => {
     if (!gltf) return;
     const prefab = gltf.scene;
+    normalizePrefab(prefab);
     enableShadows(prefab);
     playerPrefabs.set(side, prefab);
   });
@@ -1408,6 +1126,19 @@ function clampPlayerToZone(pos, side) {
   pos.z = THREE.MathUtils.clamp(pos.z, zone.z[0], zone.z[1]);
 }
 
+function normalizePrefab(prefab) {
+  if (!prefab) return;
+  const box = new THREE.Box3().setFromObject(prefab);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  if (size.x === 0 || size.z === 0) return;
+  const factor = Math.min(TARGET_PLAYER_SIZE.x / size.x, TARGET_PLAYER_SIZE.z / size.z);
+  prefab.scale.multiplyScalar(factor);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  prefab.position.sub(center); // pivot to (0,0,0)
+}
+
 function clampPlayerToSideLine(pos, side) {
   clampPlayerToZone(pos, side);
   const anchor = SIDE_ANCHOR[side]?.();
@@ -1417,33 +1148,6 @@ function clampPlayerToSideLine(pos, side) {
 
 function enforcePlayerBounds() {
   players.forEach((p) => {
-    clampPlayerToSideLine(p.mesh.position, p.side);
-  });
-}
-
-function moveLocalPlayer(dt) {
-  const speed = PHYSICS.playerSpeed;
-  const player = players.find((p) => p.isLocal);
-  if (!player) return;
-  const side = player.side;
-  const moveX = (side === 'top' || side === 'bottom') ? input.moveX : 0;
-  const moveZ = (side === 'left' || side === 'right') ? input.moveZ : 0;
-  player.mesh.position.x += moveX * speed * dt;
-  player.mesh.position.z += moveZ * speed * dt;
-  clampPlayerToSideLine(player.mesh.position, player.side);
-}
-
-function moveBots(dt) {
-  players.forEach((p) => {
-    if (p.isLocal) return;
-    const target = ballMesh.position;
-    const speed = 4.2;
-    let dirX = Math.sign(target.x - p.mesh.position.x);
-    let dirZ = Math.sign(target.z - p.mesh.position.z);
-    if (p.side === 'top' || p.side === 'bottom') dirZ = 0;
-    if (p.side === 'left' || p.side === 'right') dirX = 0;
-    p.mesh.position.x += dirX * speed * dt * 0.8;
-    p.mesh.position.z += dirZ * speed * dt * 0.8;
     clampPlayerToSideLine(p.mesh.position, p.side);
   });
 }
@@ -1537,16 +1241,6 @@ function applyNetState() {
     shadowMesh.scale.set(ballState.radius * 2, ballState.radius * 2, 1);
   }
 
-  if (curr.payload?.collect) {
-    const coll = curr.payload.collect;
-    net.collect.total = coll.total ?? net.collect.total;
-    net.collect.collected = coll.collected ?? net.collect.collected;
-    net.collect.score = coll.score || net.collect.score || {};
-    if (Array.isArray(coll.items)) {
-      syncNetCollectibles(coll.items, coll.total, coll.collected);
-    }
-  }
-
   if (net.matchState && net.matchState !== 'IN_PROGRESS' && net.matchState !== 'READY') {
     players.forEach((p) => {
       const base = playerDefaultPosition(p.side);
@@ -1561,32 +1255,6 @@ function applyNetState() {
   }
   enforcePlayerBounds();
 
-  // highlight nearest in online mode
-  const marker = getNearestMarker();
-  if (collectibles.length) {
-    let nearest = null;
-    let dmin = Infinity;
-    const local = players.find((p) => p.isLocal);
-    if (local) {
-      collectibles.forEach((c) => {
-        const dx = c.position.x - local.mesh.position.x;
-        const dz = c.position.z - local.mesh.position.z;
-        const d2 = dx * dx + dz * dz;
-        if (d2 < dmin) {
-          dmin = d2;
-          nearest = c.position;
-        }
-      });
-    }
-    if (nearest) {
-      marker.visible = true;
-      marker.position.set(nearest.x, marker.position.y, nearest.z);
-    } else {
-      marker.visible = false;
-    }
-  } else {
-    marker.visible = false;
-  }
 }
 
 function sendNetInput() {
@@ -1609,47 +1277,21 @@ function updateHud() {
   const errEl = document.getElementById('error-banner');
   const cta = document.getElementById('cta-retry');
   const matchBanner = document.getElementById('match-banner');
-  const scoreEl = document.getElementById('score-line');
-  const collectBoard = document.getElementById('collect-board');
   const playerBoard = document.getElementById('player-board');
-  const btnStart = document.getElementById('btn-start');
-  const btnReset = document.getElementById('btn-reset');
+  const perfEl = null;
+  const btnStart = null;
+  const btnReset = null;
   const btnRestart = document.getElementById('btn-restart');
   const stateChip = document.getElementById('state-chip');
   if (!netEl) return;
   const hideBanner = () => { if (matchBanner) matchBanner.style.display = 'none'; };
   if (btnStart) {
-    btnStart.disabled = net.enabled;
-    btnStart.textContent = GAME.state === 'running' ? 'Restart' : 'Start';
+    btnStart.disabled = true;
+    btnStart.textContent = 'Waiting';
   }
-  if (btnReset) btnReset.disabled = net.enabled;
-  if (btnRestart) btnRestart.disabled = !net.enabled || !net.connected;
-  if (!net.enabled) {
-    netEl.textContent = 'Mode: offline demo (local physics + bots + collectibles)';
-    if (matchEl) matchEl.textContent = `Run: ${GAME.state.toUpperCase()}`;
-    if (errEl) errEl.style.display = 'none';
-    if (cta) cta.style.display = 'none';
-    if (scoreEl) {
-      scoreEl.textContent = `Collectibles: ${GAME.collected}/${GAME.totalCollectibles}`;
-      scoreEl.style.display = '';
-    }
-    if (matchBanner) {
-      if (GAME.state === 'win') {
-        matchBanner.textContent = 'You collected everything! 🎉';
-        matchBanner.style.display = 'block';
-        matchBanner.style.borderColor = 'var(--tf-accent, #1ee0d7)';
-        matchBanner.style.color = 'var(--tf-accent, #1ee0d7)';
-      } else {
-        matchBanner.style.display = 'none';
-      }
-    } else {
-      hideBanner();
-    }
-    if (collectBoard) {
-      collectBoard.style.display = 'none';
-    }
-    if (playerBoard) playerBoard.style.display = 'none';
-  } else if (net.connected) {
+  if (btnReset) btnReset.disabled = true;
+  if (btnRestart) btnRestart.disabled = !net.connected;
+  if (net.connected) {
     const pingVal = net.avgPing ?? net.latencyMs;
     const ping = pingVal != null ? `, ping ~${pingVal.toFixed(0)}ms` : '';
     const reason = net.matchReason ? `, reason: ${net.matchReason}` : '';
@@ -1662,53 +1304,19 @@ function updateHud() {
     if (matchEl) matchEl.textContent = `Match state: ${net.matchState || 'unknown'}${suffix}`;
     if (errEl) errEl.style.display = 'none';
     if (cta) cta.style.display = 'none';
-    if (scoreEl) {
-      const goal = window.SERVER_CONFIG?.scoreToWin || null;
-      const s = net.score || {};
-      const collectStr = net.collect?.total
-        ? ` • collectibles ${net.collect.collected ?? 0}/${net.collect.total}`
-        : '';
-      const scoreText = goal
-        ? `Score (goal ${goal}) — top:${s.top ?? 0}/${goal} right:${s.right ?? 0}/${goal} bottom:${s.bottom ?? 0}/${goal} left:${s.left ?? 0}/${goal}`
-        : `Score — top:${s.top ?? 0} right:${s.right ?? 0} bottom:${s.bottom ?? 0} left:${s.left ?? 0}`;
-      scoreEl.textContent = `${scoreText}${collectStr}`;
-      scoreEl.style.display = '';
-    }
-    if (collectBoard) {
-      const hasCollect = (net.collect?.total || 0) > 0;
-      collectBoard.style.display = hasCollect ? 'grid' : 'none';
-      collectBoard.replaceChildren();
-      if (hasCollect) {
-        const entries = Object.entries(net.collect?.score || {}).sort((a, b) => (b[1] || 0) - (a[1] || 0));
-        if (entries.length) {
-          entries.forEach(([pid, cnt]) => {
-            const rowName = document.createElement('div');
-            const rowScore = document.createElement('div');
-            const playerMeta = net.players.get(pid);
-            const displayName = playerMeta?.username || pid;
-            const side = playerMeta?.side;
-            rowName.textContent = pid === net.id ? `${displayName} (you)` : displayName;
-            if (side) rowName.style.color = sideHex(side);
-            rowScore.textContent = `${cnt} collected${side ? ` • ${side}` : ''}`;
-            collectBoard.append(rowName, rowScore);
-          });
-        } else {
-          collectBoard.textContent = 'Collecting...';
-        }
-      }
-    }
     if (playerBoard) {
       playerBoard.style.display = 'grid';
       playerBoard.replaceChildren();
-      net.players.forEach((p, pid) => {
+      const order = { top: 0, right: 1, bottom: 2, left: 3 };
+      const playersArr = [...net.players.entries()].sort((a, b) => (order[a[1].side] ?? 99) - (order[b[1].side] ?? 99));
+      playersArr.forEach(([pid, p]) => {
         const rowName = document.createElement('div');
         const rowScore = document.createElement('div');
         const dot = document.createElement('span');
         dot.className = 'pill-dot';
         dot.style.backgroundColor = sideHex(p.side || 'top');
         rowName.append(dot, document.createTextNode(pid === net.id ? `${p.username || pid} (you)` : (p.username || pid)));
-        const collected = net.collect?.score?.[pid] ?? 0;
-        rowScore.textContent = `${p.side || '-'} • ${collected} collected`;
+        rowScore.textContent = `${p.side || '-'}${p.connected ? '' : ' (dc)'}`;
         playerBoard.append(rowName, rowScore);
       });
       if (!playerBoard.hasChildNodes()) {
@@ -1717,30 +1325,12 @@ function updateHud() {
     }
     if (matchBanner) {
       if (net.matchState === 'FINISHED') {
-        const winSide = net.matchReason?.startsWith('WIN_') ? net.matchReason.slice(4).toLowerCase() : null;
-        const s = net.score || {};
-        const scoreText = `Score top:${s.top ?? 0} right:${s.right ?? 0} bottom:${s.bottom ?? 0} left:${s.left ?? 0}`;
-        if (net.matchReason === 'WIN_COLLECT') {
-          const col = net.collect || {};
-          matchBanner.textContent = `All collectibles: ${col.collected ?? 0}/${col.total ?? 0}`;
-          matchBanner.style.borderColor = 'var(--tf-accent, #1ee0d7)';
-          matchBanner.style.color = 'var(--tf-accent, #1ee0d7)';
-        } else if (winSide) {
-          matchBanner.textContent = `Winner: ${winSide} • ${scoreText}`;
-          matchBanner.style.borderColor = sideHex(winSide);
-          matchBanner.style.color = sideHex(winSide);
-        } else {
-          matchBanner.textContent = `Match finished${net.matchReason ? `: ${net.matchReason}` : ''} • ${scoreText}`;
-          matchBanner.style.borderColor = 'rgba(255,255,255,0.15)';
-          matchBanner.style.color = '#e6f2ff';
-        }
+        matchBanner.textContent = `Match finished${net.matchReason ? `: ${net.matchReason}` : ''}`;
+        matchBanner.style.borderColor = 'rgba(255,255,255,0.15)';
+        matchBanner.style.color = '#e6f2ff';
         matchBanner.style.display = 'block';
       } else if (net.matchState === 'WAITING') {
-        const goal = (window.SERVER_CONFIG?.scoreToWin) ? ` | first to ${window.SERVER_CONFIG.scoreToWin}` : '';
-        const timeout = window.SERVER_CONFIG?.roomTimeoutMs ? ` | timeout ${Math.round(window.SERVER_CONFIG.roomTimeoutMs / 1000)}s` : '';
-        const s = net.score || {};
-        const scoreText = ` | score ${s.top ?? 0}/${s.right ?? 0}/${s.bottom ?? 0}/${s.left ?? 0}`;
-        matchBanner.textContent = `Waiting for players...${goal}${timeout}${scoreText}`;
+        matchBanner.textContent = 'Waiting for players...';
         matchBanner.style.display = 'block';
       } else if (net.matchState === 'READY' && readyEndsAt) {
         matchBanner.textContent = `Starting in ${(Math.max(0, readyEndsAt - Date.now()) / 1000).toFixed(1)}s`;
@@ -1754,11 +1344,11 @@ function updateHud() {
     const errText = errCode ? ` — error: ${errCode}` : (net.errorMessage ? ` — ${net.errorMessage}` : '');
     const state = net.connectionState || 'connecting';
     netEl.textContent = `${state.toUpperCase()} to ${net.wsUrl || ''}${errText} (tap Connect to retry)`;
-      if (matchEl) matchEl.textContent = `Match state: ${net.matchState || state}`;
-      if (errEl) {
-        const message = errCode || net.errorMessage;
-        if (message) {
-          errEl.textContent = `Connection error: ${message}`;
+    if (matchEl) matchEl.textContent = `Match state: ${net.matchState || state}`;
+    if (errEl) {
+      const message = errCode || net.errorMessage;
+      if (message) {
+        errEl.textContent = `Connection error: ${message}`;
         errEl.style.display = 'block';
       } else {
         errEl.style.display = 'none';
@@ -1767,16 +1357,11 @@ function updateHud() {
     if (cta) {
       cta.style.display = errCode === 'RECONNECT_MAX' ? 'block' : 'none';
     }
-    if (scoreEl) scoreEl.textContent = '';
     hideBanner();
-    if (collectBoard) collectBoard.style.display = 'none';
+    if (playerBoard) playerBoard.style.display = 'none';
   }
   if (stateChip) {
-    if (!net.enabled) {
-      stateChip.textContent = GAME.state === 'win' ? 'Win' : GAME.state === 'running' ? 'Running' : 'Idle';
-    } else {
-      stateChip.textContent = net.connected ? 'Online' : 'Connecting...';
-    }
+    stateChip.textContent = net.connected ? 'Online' : 'Connecting...';
   }
 }
 
@@ -1878,24 +1463,11 @@ function collideBallWithPlayer(player) {
   playSfx('hit_player', 0.6);
 }
 
-function applyMagnets(dt) {
-  MAGNETS.filter((m) => m.enabled).forEach((mag) => {
-    const dx = mag.center.x - ballMesh.position.x;
-    const dz = mag.center.y - ballMesh.position.z;
-    const dist = Math.hypot(dx, dz);
-    if (dist < 1e-3 || dist > mag.radius) return;
-    const force = (1 - dist / mag.radius) * mag.strength;
-    ballState.velocity.x += (dx / dist) * force * dt;
-    ballState.velocity.y += (dz / dist) * force * dt;
-  });
-}
-
 function updateBall(dt) {
   ballMesh.position.x += ballState.velocity.x * dt;
   ballMesh.position.z += ballState.velocity.y * dt;
   ballMesh.position.y = ballState.radius;
 
-  applyMagnets(dt);
   collideBallWithWalls();
   players.forEach(collideBallWithPlayer);
 
@@ -1916,23 +1488,12 @@ function update(dt) {
     setMoveVector(0, 0, 'net-guard');
   }
 
-  if (input.paused) return;
-
-  if (net.enabled) {
-    if (net.connected) {
-      if (!input.touchActive && !input.dragActive) {
-        recomputeKeyboardVector();
-      }
-      sendNetInput();
-      applyNetState();
+  if (net.connected) {
+    if (!input.touchActive && !input.dragActive) {
+      recomputeKeyboardVector();
     }
-  } else {
-    if (GAME.state === 'running') {
-      moveLocalPlayer(dt);
-      moveBots(dt);
-      updateBall(dt);
-      updateCollectibles(dt);
-    }
+    sendNetInput();
+    applyNetState();
   }
   enforcePlayerBounds();
 }
@@ -1957,19 +1518,22 @@ bindDragControls();
 bindNetControls();
 bindGameUiControls();
 applyDebugUi();
-
-if (!net.enabled) {
-  GAME.state = 'running';
-  spawnCollectibles();
-} else {
-  GAME.state = 'idle';
-}
 updateHud();
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+window.addEventListener('orientationchange', () => {
+  // give WebView a moment to recalc safe-area
+  setTimeout(() => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    updateHud();
+  }, 100);
 });
 
 window.addEventListener('message', (evt) => {

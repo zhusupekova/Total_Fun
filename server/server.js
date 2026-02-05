@@ -17,8 +17,6 @@ const RECLAIM_MS = 15000;
 const INPUT_INTERVAL_MS = 33; // ~30 Hz
 const MAX_MSG_PER_SEC = 120;
 const CONFIG_EVERY_TICKS = 120; // send config in snapshot every ~2s at 60Hz
-const COLLECTIBLE_COUNT = parseInt(process.env.COLLECTIBLE_COUNT || '0', 10); // default off, enable via env
-const COLLECT_RADIUS = 1.15;
 const MAX_CONN_PER_IP = parseInt(process.env.MAX_CONN_PER_IP || '8', 10);
 const CONN_WINDOW_MS = parseInt(process.env.CONN_WINDOW_MS || '10000', 10);
 
@@ -34,7 +32,6 @@ const BALL = {
   hitImpulse: 2.5,
   angleInfluence: 1,
 };
-const RESET_COOLDOWN_MS = 1000;
 
 const SIDE_ORDER = ['top', 'right', 'bottom', 'left'];
 const SIDE_ZONES = {
@@ -50,21 +47,11 @@ const SIDE_ANCHOR = {
   right: () => ({ x: (SIDE_ZONES.right.x[0] + SIDE_ZONES.right.x[1]) / 2 }),
 };
 
-const MAGNETS_ENABLED = process.env.MAGNETS !== 'off';
-const MAGNETS = [
-  { id: 'nw', center: { x: -6.5, z: -3.5 }, radius: 2, strength: 4, type: 'pull', enabled: true },
-  { id: 'ne', center: { x: 6.5, z: -3.5 }, radius: 2, strength: 4, type: 'pull', enabled: true },
-  { id: 'se', center: { x: 6.5, z: 3.5 }, radius: 2, strength: 4, type: 'pull', enabled: true },
-  { id: 'sw', center: { x: -6.5, z: 3.5 }, radius: 2, strength: 4, type: 'pull', enabled: true },
-];
-
 const BOT_TOKEN = process.env.BOT_TOKEN || null;
 const AUTH_GRACE_SEC = parseInt(process.env.AUTH_GRACE_SEC || '86400', 10); // 24h by default
 const REQUIRE_AUTH = process.env.REQUIRE_AUTH === 'true';
-const ALLOW_DEBUG = process.env.ALLOW_DEBUG === 'true';
 const ROOM_TIMEOUT_MS = parseInt(process.env.ROOM_TIMEOUT_MS || '0', 10); // 0 = disable
-const SCORE_TO_WIN = parseInt(process.env.SCORE_TO_WIN || '0', 10); // 0 = disable scoring
-const FINISHED_RESET_MS = parseInt(process.env.FINISHED_RESET_MS || '5000', 10); // auto reset to WAITING after finish
+const HIT_COOLDOWN_MS = parseInt(process.env.HIT_COOLDOWN_MS || '100', 10);
 const MAX_USERNAME = 32;
 const MAX_USERID = 64;
 
@@ -77,10 +64,6 @@ const state = {
   readyUntil: null,
   ball: { x: 0, z: 0, vx: 0, vz: 0 },
   lastSnapshotAt: 0,
-  score: { top: 0, right: 0, bottom: 0, left: 0 },
-  collectibles: [],
-  collected: 0,
-  collectScore: {}, // playerId -> count
 };
 
 const sockets = new Map(); // ws -> playerId
@@ -96,13 +79,7 @@ const httpServer = createServer((req, res) => {
       players: connectedPlayers().length,
       tick: state.tick,
       metrics,
-      collect: {
-        total: state.collectibles.length,
-        collected: state.collected,
-        remaining: state.collectibles.filter((c) => !c.collected).length,
-      },
       version: pkg.version,
-      score: state.score,
     };
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify(payload));
@@ -129,8 +106,6 @@ const metrics = {
   rateLimitHits: 0,
   badAuth: 0,
   roomFull: 0,
-  lastWinner: null,
-  lastScore: null,
 };
 const METRICS_INTERVAL_MS = parseInt(process.env.METRICS_INTERVAL_MS || '60000', 10);
 
@@ -192,21 +167,6 @@ function kickOffBall() {
   state.ball.z = 0;
 }
 
-function applyMagnets(dt) {
-  if (!MAGNETS_ENABLED) return;
-  MAGNETS.filter((m) => m.enabled).forEach((mag) => {
-    const dx = mag.center.x - state.ball.x;
-    const dz = mag.center.z - state.ball.z;
-    const dist = Math.hypot(dx, dz);
-    if (dist < 1e-4 || dist > mag.radius) return;
-    const force = (1 - dist / mag.radius) * mag.strength;
-    const nx = dx / dist;
-    const nz = dz / dist;
-    state.ball.vx += nx * force * dt;
-    state.ball.vz += nz * force * dt;
-  });
-}
-
 function collideWalls() {
   const r = ARENA.ballRadius;
   const minX = -ARENA.width / 2 + r;
@@ -229,12 +189,10 @@ function collideWalls() {
     state.ball.z = minZ;
     state.ball.vz = Math.abs(state.ball.vz) * BALL.restitutionWall;
     hit = true;
-    scorePoint('top');
   } else if (state.ball.z > maxZ) {
     state.ball.z = maxZ;
     state.ball.vz = -Math.abs(state.ball.vz) * BALL.restitutionWall;
     hit = true;
-    scorePoint('bottom');
   }
 
   if (hit) {
@@ -244,6 +202,8 @@ function collideWalls() {
 }
 
 function collideWithPlayer(player) {
+  const now = Date.now();
+  if (player.lastHitAt && now - player.lastHitAt < HIT_COOLDOWN_MS) return;
   const halfX = PLAYER.collider.x / 2 + ARENA.ballRadius * 0.5;
   const halfZ = PLAYER.collider.z / 2 + ARENA.ballRadius * 0.5;
   const dx = state.ball.x - player.x;
@@ -273,21 +233,7 @@ function collideWithPlayer(player) {
   const len = Math.hypot(state.ball.vx, state.ball.vz) || 1;
   state.ball.vx = (state.ball.vx / len) * clampedSpeed;
   state.ball.vz = (state.ball.vz / len) * clampedSpeed;
-}
-
-function scorePoint(side) {
-  if (!SCORE_TO_WIN) return;
-  if (!state.score[side]) state.score[side] = 0;
-  state.score[side] += 1;
-  broadcast({ type: 'SCORE', payload: { side, score: state.score } });
-  if (state.score[side] >= SCORE_TO_WIN) {
-    setMatchState('FINISHED', `WIN_${side.toUpperCase()}`);
-    resetBall();
-  } else {
-    resetBall();
-    setMatchState('READY', 'SCORE');
-    state.readyUntil = Date.now() + READY_DURATION;
-  }
+  player.lastHitAt = now;
 }
 
 function applyBallLimits() {
@@ -341,21 +287,14 @@ function setMatchState(next, reason = null) {
   if (next === 'IN_PROGRESS') roomStartedAt = Date.now();
   if (next === 'FINISHED') state.finishedAt = Date.now();
   if (next === 'WAITING') state.finishedAt = null;
-  if (next === 'FINISHED') {
-    const winSide = typeof reason === 'string' && reason.startsWith('WIN_') ? reason.slice(4).toLowerCase() : null;
-    metrics.lastWinner = winSide;
-    metrics.lastScore = { ...state.score };
-  }
   broadcast({ type: 'MATCH_EVENT', payload: { event: `MATCH_${next}`, reason: state.matchReason } });
   if (next === 'FINISHED') resetBall();
   if (next === 'READY') {
     resetBall();
-    resetCollectibles();
     resetPlayersPositions();
   }
   if (next === 'WAITING') {
     resetBall();
-    resetCollectibles();
     resetPlayersPositions();
   }
 }
@@ -367,66 +306,19 @@ function resetBall() {
   state.ball.vz = 0;
 }
 
-function resetScore() {
-  state.score = { top: 0, right: 0, bottom: 0, left: 0 };
-}
-
 function resetPlayersPositions() {
   state.players.forEach((p) => {
     const pos = playerDefault(p.side);
     p.x = pos.x;
     p.z = pos.z;
     p.input = {};
+    p.lastHitAt = 0;
   });
-}
-
-function randomCollectiblePosition() {
-  const marginX = ARENA.width * 0.1 + 0.6;
-  const marginZ = ARENA.height * 0.1 + 0.6;
-  const x = Math.random() * (ARENA.width - marginX * 2) - (ARENA.width / 2 - marginX);
-  const z = Math.random() * (ARENA.height - marginZ * 2) - (ARENA.height / 2 - marginZ);
-  return { x, z };
-}
-
-function resetCollectibles() {
-  state.collectibles = [];
-  state.collected = 0;
-  connectedPlayers().forEach((p) => { state.collectScore[p.id] = 0; });
-  for (let i = 0; i < COLLECTIBLE_COUNT; i += 1) {
-    const pos = randomCollectiblePosition();
-    state.collectibles.push({ id: `c${i}`, x: pos.x, z: pos.z, collected: false });
-  }
-}
-
-function collectBy(player) {
-  if (!player) return;
-  state.collectScore[player.id] = (state.collectScore[player.id] || 0) + 1;
-  state.collected += 1;
-  if (state.collected >= state.collectibles.length) {
-    setMatchState('FINISHED', 'WIN_COLLECT');
-  }
-}
-
-function handleCollectibles() {
-  const actives = connectedPlayers();
-  for (const item of state.collectibles) {
-    if (item.collected) continue;
-    for (const p of actives) {
-      const dx = item.x - p.x;
-      const dz = item.z - p.z;
-      if (Math.hypot(dx, dz) <= COLLECT_RADIUS) {
-        item.collected = true;
-        collectBy(p);
-        break;
-      }
-    }
-  }
 }
 
 function maybeStartMatch() {
   const active = connectedPlayers().length;
   if (active === MAX_PLAYERS && (state.matchState === 'WAITING' || state.matchState === 'FINISHED')) {
-    resetScore();
     state.readyUntil = Date.now() + READY_DURATION;
     setMatchState('READY');
   }
@@ -446,7 +338,6 @@ function reclaimSlots() {
   for (const [id, p] of state.players.entries()) {
     if (!p.connected && p.disconnectedAt && now - p.disconnectedAt > RECLAIM_MS) {
       state.players.delete(id);
-      delete state.collectScore[id];
     }
   }
 }
@@ -473,7 +364,6 @@ function tick(dt) {
   enforcePlayerBounds();
 
   if (state.matchState === 'IN_PROGRESS') {
-    applyMagnets(dt);
     state.ball.x += state.ball.vx * dt;
     state.ball.z += state.ball.vz * dt;
     connectedPlayers().forEach(collideWithPlayer);
@@ -481,7 +371,6 @@ function tick(dt) {
     state.ball.vx *= BALL.damping;
     state.ball.vz *= BALL.damping;
     applyBallLimits();
-    handleCollectibles();
   } else {
     resetBall();
   }
@@ -490,25 +379,16 @@ function tick(dt) {
 function snapshot() {
   const q = (v) => Math.round(v * 1000) / 1000;
   const ts = Date.now();
-  const collectItems = state.collectibles.filter((c) => !c.collected).map((c) => ({ id: c.id, x: q(c.x), z: q(c.z) }));
   const payload = {
     matchState: state.matchState,
     matchReason: state.matchReason,
     ball: { pos: { x: q(state.ball.x), z: q(state.ball.z) }, r: ARENA.ballRadius },
     players: connectedPlayers().map((p) => ({ playerId: p.id, side: p.side, pos: { x: q(p.x), z: q(p.z) } })),
-    score: state.score,
-    collect: {
-      total: state.collectibles.length,
-      collected: state.collected,
-      items: collectItems,
-      score: state.collectScore,
-    },
   };
   if (state.tick % CONFIG_EVERY_TICKS === 0) {
     payload.config = {
       arena: ARENA,
-      physics: { BALL, PLAYER, MAGNETS: MAGNETS_ENABLED ? MAGNETS : [] },
-      scoreToWin: SCORE_TO_WIN,
+      physics: { BALL, PLAYER },
       roomTimeoutMs: ROOM_TIMEOUT_MS,
     };
   }
@@ -529,9 +409,7 @@ function sendWelcome(ws, player) {
       physics: {
         ball: BALL,
         player: PLAYER,
-        magnets: MAGNETS_ENABLED ? MAGNETS : [],
       },
-      collect: { total: state.collectibles.length || COLLECTIBLE_COUNT, collected: state.collected },
     },
   });
 }
@@ -634,9 +512,8 @@ function handleHello(ws, payload) {
       return;
     }
     const pos = playerDefault(side);
-    player = { id: nanoid(6), userId, username, side, x: pos.x, z: pos.z, input: {}, connected: true, ws, ping: null, lastInputAt: 0 };
+    player = { id: nanoid(6), userId, username, side, x: pos.x, z: pos.z, input: {}, connected: true, ws, ping: null, lastInputAt: 0, lastHitAt: 0 };
     state.players.set(player.id, player);
-    state.collectScore[player.id] = 0;
   } else {
     send(ws, makeError('BAD_HELLO', 'Already connected'));
     ws.close();
@@ -714,21 +591,6 @@ function handleMessage(ws, raw) {
       if (!meta.get(ws)?.handshaked) return;
       handlePong(ws, msg.payload);
       break;
-    case 'DEBUG':
-      if (!ALLOW_DEBUG) return;
-      if (!meta.get(ws)?.handshaked) return;
-      if (msg.payload?.cmd === 'RESET_BALL') resetBall();
-      break;
-    case 'RESTART':
-      if (!meta.get(ws)?.handshaked) return;
-      if (state._lastResetAt && now - state._lastResetAt < RESET_COOLDOWN_MS) return;
-      state._lastResetAt = now;
-      resetScore();
-      resetCollectibles();
-      resetPlayersPositions();
-      setMatchState('WAITING', 'CLIENT_RESET');
-      maybeStartMatch();
-      break;
     default:
       send(ws, makeError('BAD_INPUT', 'Unknown message'));
   }
@@ -804,14 +666,6 @@ setInterval(() => {
     }
   }
 
-  if (FINISHED_RESET_MS > 0 && state.matchState === 'FINISHED' && state.finishedAt) {
-    if (now - state.finishedAt > FINISHED_RESET_MS) {
-      state.readyUntil = null;
-      resetScore();
-      setMatchState('WAITING', 'RESET');
-      maybeStartMatch();
-    }
-  }
 }, 1000 / TICK_RATE);
 
 if (METRICS_INTERVAL_MS > 0) {
@@ -828,7 +682,6 @@ if (METRICS_INTERVAL_MS > 0) {
       players: connectedPlayers().length,
       matchState: state.matchState,
       tick: state.tick,
-      lastWinner: metrics.lastWinner,
     };
     console.log('[metrics]', JSON.stringify(payload));
   }, METRICS_INTERVAL_MS);
