@@ -305,12 +305,7 @@ const sideYaw = {
   bottom: Math.PI,
   left: -Math.PI / 2,
 };
-const playerPortraits = {
-  top: 'ref_character_cat.jpeg',
-  right: 'ref_character_dog.png',
-  bottom: 'ref_character_duck.jpeg',
-  left: 'ref_character_pigeon.jpeg',
-};
+const playerPortraits = {};
 const playerColorBySide = {
   top: 0xff8a3d, // cat orange
   right: 0xf5f5f5, // dog white
