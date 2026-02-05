@@ -20,7 +20,7 @@ const CONFIG_EVERY_TICKS = 120; // send config in snapshot every ~2s at 60Hz
 const MAX_CONN_PER_IP = parseInt(process.env.MAX_CONN_PER_IP || '8', 10);
 const CONN_WINDOW_MS = parseInt(process.env.CONN_WINDOW_MS || '10000', 10);
 
-const ARENA = { width: 16, height: 10, playerDepth: 0.7, ballRadius: 0.5 };
+const ARENA = { width: 12, height: 8, playerDepth: 0.6, ballRadius: 0.5 };
 const PLAYER = { speed: 6, collider: { x: 2.2, z: 0.7 } };
 const BALL = {
   minSpeed: 2,
@@ -35,10 +35,10 @@ const BALL = {
 
 const SIDE_ORDER = ['top', 'right', 'bottom', 'left'];
 const SIDE_ZONES = {
-  top: { x: [-8, 8], z: [-5, -2.5] },
-  bottom: { x: [-8, 8], z: [2.5, 5] },
-  left: { x: [-8, -4], z: [-5, 5] },
-  right: { x: [4, 8], z: [-5, 5] },
+  top: { x: [-6, 6], z: [-4, -1.5] },
+  bottom: { x: [-6, 6], z: [1.5, 4] },
+  left: { x: [-6, -3], z: [-4, 4] },
+  right: { x: [3, 6], z: [-4, 4] },
 };
 const SIDE_ANCHOR = {
   top: () => ({ z: (SIDE_ZONES.top.z[0] + SIDE_ZONES.top.z[1]) / 2 }),

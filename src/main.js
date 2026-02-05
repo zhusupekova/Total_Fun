@@ -26,12 +26,12 @@ dir.position.set(10, 16, 9);
 dir.castShadow = false;
 scene.add(dir);
 
-const ARENA = { width: 16, height: 10, wallHeight: 1.2, playerDepth: 0.7, ballRadius: 0.5 };
+const ARENA = { width: 12, height: 8, wallHeight: 1.2, playerDepth: 0.6, ballRadius: 0.5 };
 const SIDE_ZONES = {
-  top: { x: [-8, 8], z: [-5, -2.5] },
-  bottom: { x: [-8, 8], z: [2.5, 5] },
-  left: { x: [-8, -4], z: [-5, 5] },
-  right: { x: [4, 8], z: [-5, 5] },
+  top: { x: [-6, 6], z: [-4, -1.5] },
+  bottom: { x: [-6, 6], z: [1.5, 4] },
+  left: { x: [-6, -3], z: [-4, 4] },
+  right: { x: [3, 6], z: [-4, 4] },
 };
 const SIDE_ANCHOR = {
   top: () => ({ z: (SIDE_ZONES.top.z[0] + SIDE_ZONES.top.z[1]) / 2 }),
@@ -61,7 +61,7 @@ const ASSETS = {
 };
 const playerPrefabs = new Map();
 let playerFallbackPrefab = null;
-const TARGET_PLAYER_SIZE = { x: 2.2, z: 0.7 };
+const TARGET_PLAYER_SIZE = { x: 3.0, z: 1.2 };
 const params = new URLSearchParams(window.location.search);
 const envWs = process.env.NEXT_PUBLIC_WS;
 const storedWs = typeof localStorage !== 'undefined' ? localStorage.getItem('tf_ws_url') : null;
@@ -177,16 +177,16 @@ function createArena() {
   floorCanvas.width = 1024;
   floorCanvas.height = 1024;
   const fctx = floorCanvas.getContext('2d');
-  fctx.fillStyle = '#d6d1cf';
+  fctx.fillStyle = '#d7d3c9';
   fctx.fillRect(0, 0, 1024, 1024);
-  fctx.fillStyle = '#c9c3c0';
-  for (let i = 0; i < 18; i++) {
-    const w = 180 + Math.random() * 220;
-    const h = 40 + Math.random() * 80;
+  fctx.fillStyle = '#cfc8bc';
+  for (let i = 0; i < 12; i++) {
+    const w = 320 + Math.random() * 180;
+    const h = 160 + Math.random() * 120;
     const x = Math.random() * (1024 - w);
     const y = Math.random() * (1024 - h);
     fctx.beginPath();
-    fctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, Math.random(), 0, Math.PI * 2);
+    fctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, Math.random() * 0.8, 0, Math.PI * 2);
     fctx.fill();
   }
   const floorTex = new THREE.CanvasTexture(floorCanvas);
@@ -203,20 +203,20 @@ function createArena() {
   railCanvas.width = 256;
   railCanvas.height = 64;
   const rctx = railCanvas.getContext('2d');
-  rctx.fillStyle = '#0e1624';
+  rctx.fillStyle = '#0c1621';
   rctx.fillRect(0, 0, 256, 64);
-  rctx.fillStyle = '#1ee0d7';
-  for (let i = 0; i < 12; i++) {
-    rctx.roundRect(8 + i * 20, 16, 14, 32, 4);
+  rctx.fillStyle = '#22d4d1';
+  for (let i = 0; i < 10; i++) {
+    rctx.roundRect(10 + i * 24, 14, 16, 36, 4);
     rctx.fill();
   }
   const railTex = new THREE.CanvasTexture(railCanvas);
   railTex.wrapS = railTex.wrapT = THREE.RepeatWrapping;
   railTex.repeat.set(20, 1);
 
-  const railMat = new THREE.MeshStandardMaterial({ map: railTex, emissive: 0x0b9dad, emissiveIntensity: 0.35, metalness: 0.2, roughness: 0.4 });
-  const railH = 0.4;
-  const railT = 0.35;
+  const railMat = new THREE.MeshStandardMaterial({ map: railTex, emissive: 0x0c9fb5, emissiveIntensity: 0.45, metalness: 0.15, roughness: 0.45 });
+  const railH = 0.38;
+  const railT = 0.32;
   const railGeomH = new THREE.BoxGeometry(ARENA.width + railT * 2, railH, railT);
   const railGeomV = new THREE.BoxGeometry(railT, railH, ARENA.height + railT * 2);
   const railTop = new THREE.Mesh(railGeomH, railMat);
@@ -319,6 +319,7 @@ function createPlayer(colorIndex, side) {
   if (prefab) {
     const cloned = cloneSkinned(prefab);
     enableShadows(cloned);
+    cloned.scale.multiplyScalar(1.15);
     cloned.rotation.y = sideYaw[side] ?? 0;
     cloned.userData.side = side;
     return cloned;
