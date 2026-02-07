@@ -188,8 +188,12 @@ html, body, #__next {
   font-size: 12px;
   line-height: 1.4;
   backdrop-filter: blur(4px);
-  display: grid;
+  display: none;
   gap: 6px;
+}
+
+#net-panel.net-panel--visible {
+  display: grid;
 }
 
 #net-panel input {
@@ -245,6 +249,21 @@ html, body, #__next {
   touch-action: none;
 }
 
+#countdown-overlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: 64px;
+  font-weight: 800;
+  color: #e6f2ff;
+  text-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 20;
+  transition: opacity 120ms ease;
+}
+
 .stick-base {
   position: absolute;
   width: 160px;
@@ -263,4 +282,128 @@ html, body, #__next {
   border: 1px solid rgba(154, 232, 255, 0.45);
   box-shadow: 0 8px 20px rgba(0,0,0,0.35);
   transform: translate(44px, 44px);
+}
+
+#investor-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: radial-gradient(circle at 50% 30%, rgba(20,26,38,0.45), rgba(8,10,16,0.7));
+  color: #eaf2ff;
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 200ms ease;
+  z-index: 30;
+}
+
+#investor-overlay.visible { opacity: 1; }
+
+#investor-overlay__subtext {
+  font-weight: 500;
+  font-size: 14px;
+  color: #c9d6ef;
+}
+
+#control-hint {
+  position: fixed;
+  bottom: calc(190px + env(safe-area-inset-bottom, 0px));
+  left: calc(16px + env(safe-area-inset-left, 0px));
+  padding: 8px 12px;
+  background: rgba(12, 18, 30, 0.78);
+  color: #e6f2ff;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px;
+  font-size: 13px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.28);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 180ms ease, transform 180ms ease;
+  pointer-events: none;
+  z-index: 25;
+}
+
+#control-hint.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+#finish-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(8, 10, 16, 0.45);
+  color: #e6f2ff;
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 200ms ease;
+  z-index: 28;
+}
+
+#finish-overlay .finish-sub {
+  font-size: 14px;
+  font-weight: 600;
+  color: #cdd8ef;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+#finish-overlay.visible {
+  opacity: 1;
+}
+
+#finish-overlay.sub-visible .finish-sub {
+  opacity: 1;
+}
+
+#invite-overlay {
+  position: fixed;
+  top: 18%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 16px;
+  background: rgba(12, 18, 30, 0.88);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 12px;
+  color: #e6f2ff;
+  font-weight: 700;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.3);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease, transform 180ms ease;
+  z-index: 26;
+}
+
+#invite-overlay.visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+
+.invite-btn {
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: none;
+  background: linear-gradient(135deg, #1ee0d7, #4e7bff);
+  color: #0b1220;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.25);
 }

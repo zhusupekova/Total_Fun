@@ -109,6 +109,14 @@ const metrics = {
 };
 const METRICS_INTERVAL_MS = parseInt(process.env.METRICS_INTERVAL_MS || '60000', 10);
 
+function ensureFinite(value, fallback = 0) {
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function ensureFinite(value, fallback = 0) {
+  return Number.isFinite(value) ? value : fallback;
+}
+
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
@@ -168,13 +176,13 @@ function kickOffBall() {
     { x: ARENA.width / 2 + 0.2, z: 0 },
   ];
   const origin = spawnPoints[Math.floor(Math.random() * spawnPoints.length)];
-  state.ball.x = origin.x;
-  state.ball.z = origin.z;
+  state.ball.x = ensureFinite(origin.x, 0);
+  state.ball.z = ensureFinite(origin.z, 0);
   const dirX = -origin.x;
   const dirZ = -origin.z;
   const len = Math.hypot(dirX, dirZ) || 1;
-  state.ball.vx = (dirX / len) * BALL.baseSpeed;
-  state.ball.vz = (dirZ / len) * BALL.baseSpeed;
+  state.ball.vx = ensureFinite((dirX / len) * BALL.baseSpeed, 0);
+  state.ball.vz = ensureFinite((dirZ / len) * BALL.baseSpeed, 0);
 }
 
 function collideWalls() {
@@ -247,6 +255,8 @@ function collideWithPlayer(player) {
 }
 
 function applyBallLimits() {
+  state.ball.vx = ensureFinite(state.ball.vx, 0);
+  state.ball.vz = ensureFinite(state.ball.vz, 0);
   const speed = Math.hypot(state.ball.vx, state.ball.vz);
   if (speed < BALL.minSpeed) {
     const ang = Math.atan2(state.ball.vz, state.ball.vx) || Math.random() * Math.PI * 2;
@@ -365,21 +375,21 @@ function tick(dt) {
   active.forEach((p) => {
     const dir = normalizeDir(p.input);
     if (p.side === 'top' || p.side === 'bottom') {
-      p.x += dir.x * PLAYER.speed * dt;
+      p.x = ensureFinite(p.x + dir.x * PLAYER.speed * dt, p.x);
     } else if (p.side === 'left' || p.side === 'right') {
-      p.z += dir.z * PLAYER.speed * dt;
+      p.z = ensureFinite(p.z + dir.z * PLAYER.speed * dt, p.z);
     }
     clampPlayerToZone(p);
   });
   enforcePlayerBounds();
 
   if (state.matchState === 'IN_PROGRESS') {
-    state.ball.x += state.ball.vx * dt;
-    state.ball.z += state.ball.vz * dt;
+    state.ball.x = ensureFinite(state.ball.x + state.ball.vx * dt, 0);
+    state.ball.z = ensureFinite(state.ball.z + state.ball.vz * dt, 0);
     connectedPlayers().forEach(collideWithPlayer);
     collideWalls();
-    state.ball.vx *= BALL.damping;
-    state.ball.vz *= BALL.damping;
+    state.ball.vx = ensureFinite(state.ball.vx * BALL.damping, 0);
+    state.ball.vz = ensureFinite(state.ball.vz * BALL.damping, 0);
     applyBallLimits();
   } else {
     resetBall();
@@ -392,8 +402,12 @@ function snapshot() {
   const payload = {
     matchState: state.matchState,
     matchReason: state.matchReason,
-    ball: { pos: { x: q(state.ball.x), z: q(state.ball.z) }, r: ARENA.ballRadius },
-    players: connectedPlayers().map((p) => ({ playerId: p.id, side: p.side, pos: { x: q(p.x), z: q(p.z) } })),
+    ball: { pos: { x: q(ensureFinite(state.ball.x, 0)), z: q(ensureFinite(state.ball.z, 0)) }, r: ARENA.ballRadius },
+    players: connectedPlayers().map((p) => ({
+      playerId: p.id,
+      side: p.side,
+      pos: { x: q(ensureFinite(p.x, 0)), z: q(ensureFinite(p.z, 0)) },
+    })),
   };
   if (state.tick % CONFIG_EVERY_TICKS === 0) {
     payload.config = {
@@ -453,7 +467,9 @@ function sanitizeInputPayload(payload) {
 }
 
 function verifyTelegramInitData(initDataRaw) {
-  if (!BOT_TOKEN) return { ok: !REQUIRE_AUTH, reason: 'NO_BOT_TOKEN' };
+  if (!BOT_TOKEN) {
+    return { ok: !REQUIRE_AUTH, reason: 'NO_BOT_TOKEN' };
+  }
   if (!initDataRaw) return { ok: false, reason: 'MISSING_INITDATA' };
   try {
     const params = new URLSearchParams(initDataRaw);
@@ -497,6 +513,14 @@ function handleHello(ws, payload) {
   }
 
   const tgUser = auth.user;
+  // Enforce auth when required: if REQUIRE_AUTH=true but auth.user missing, deny.
+  if (REQUIRE_AUTH && !tgUser) {
+    metrics.badAuth += 1;
+    send(ws, makeError('BAD_AUTH', auth.reason || 'Missing Telegram user'));
+    ws.close();
+    return;
+  }
+
   const userId = tgUser?.id ? String(tgUser.id) : (cleaned.userId || `guest-${nanoid(6)}`);
   const username = tgUser?.username || (cleaned.username || 'Player').slice(0, MAX_USERNAME);
   const existing = [...state.players.values()].find((p) => p.userId === userId);

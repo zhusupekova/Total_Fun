@@ -28,10 +28,23 @@ function GameView() {
       <div id="match-banner" />
       <div id="cta-retry" className="cta-retry">Connection lost. Tap Retry.</div>
       <div id="net-panel" />
+      <div id="investor-overlay">
+        <div id="investor-overlay__text">Loading…</div>
+        <div id="investor-overlay__subtext"></div>
+      </div>
+      <div id="finish-overlay">
+        <div className="finish-title">Match Finished</div>
+        <div className="finish-sub">Next match starting...</div>
+      </div>
+      <div id="invite-overlay">
+        <div className="invite-text">Play with friends in Telegram</div>
+        <button id="invite-btn" className="invite-btn">Invite Friend</button>
+      </div>
       <div id="touch-controls">
         <div className="stick-base" />
         <div className="stick-thumb" id="stick-thumb" />
       </div>
+      <div id="control-hint">Drag to move</div>
     </>
   );
 }
