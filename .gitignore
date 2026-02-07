@@ -4,4 +4,7 @@ server/node_modules
 assets/*.glb
 assets/sfx/*
 ball.png
+/.next
+/out
+/test-results
 ~$*.docx
