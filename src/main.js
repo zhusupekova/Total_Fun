@@ -713,10 +713,24 @@ function enableShadows(object) {
 
 async function loadOptionalGltf(url) {
   if (!url) return null;
+  const LOAD_TIMEOUT_MS = 12000;
+  const withTimeout = (promise, ms) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('GLTF_TIMEOUT')), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
   try {
-    return await gltfLoader.loadAsync(url);
+    return await withTimeout(gltfLoader.loadAsync(url), LOAD_TIMEOUT_MS);
   } catch (err) {
-    console.warn('Optional GLTF not found/failed:', url);
+    console.warn('Optional GLTF not found/failed:', url, err?.message || err);
     return null;
   }
 }
@@ -1703,6 +1717,7 @@ const ui = {
   sceneReady: false,
   arenaReady: false,
   prefabsReady: false,
+  prefabsLoadStartedAt: 0,
   overlayState: '',
   hintShown: false,
 };
@@ -1778,6 +1793,7 @@ function initOverlayDom() {
 
 function updateOverlay() {
   if (!overlayDom.root) return;
+  const playerCount = net.players.size || 0;
   const next = (() => {
     if (!ui.arenaReady) return 'LOADING';
     if (!net.connected) {
@@ -1785,8 +1801,13 @@ function updateOverlay() {
       if (net.connectionState === 'error' && (errCode || net.errorMessage)) return 'ERROR';
       return 'CONNECTING';
     }
-    if (!ui.prefabsReady) return 'LOADING_PLAYERS';
-    const playerCount = net.players.size || 0;
+    if (!ui.prefabsReady) {
+      const loadingMs = ui.prefabsLoadStartedAt ? (Date.now() - ui.prefabsLoadStartedAt) : 0;
+      // Fail-open for Telegram mobile: if model loading is taking too long while we're already in a live room,
+      // don't block gameplay behind the fullscreen loading overlay.
+      if (loadingMs > 12000 && (net.matchState === 'IN_PROGRESS' || playerCount > 0)) return 'HIDE';
+      return 'LOADING_PLAYERS';
+    }
     if (net.matchState === 'WAITING' || playerCount < 4) return 'WAITING';
     return 'HIDE';
   })();
@@ -1797,7 +1818,6 @@ function updateOverlay() {
   const root = overlayDom.root;
   const text = overlayDom.text;
   const sub = overlayDom.sub;
-  const playerCount = net.players.size || 0;
   switch (next) {
     case 'LOADING':
       text.textContent = 'Total Fun';
@@ -2570,6 +2590,7 @@ async function hydrateWithGltf() {
   ui.sceneReady = false;
   ui.arenaReady = false;
   ui.prefabsReady = false;
+  ui.prefabsLoadStartedAt = Date.now();
 
   const arenaPromise = loadOptionalGltf(ASSETS.arena);
   const ballPromise = loadOptionalGltf(ASSETS.ball);
