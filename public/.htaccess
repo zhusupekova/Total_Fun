@@ -1,0 +1,9 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # Telegram Mini Apps can be sensitive to redirects that temporarily downgrade HTTPS.
+  # Serve `/game` directly (without forcing a trailing slash redirect) by rewriting it
+  # to the exported static file.
+  RewriteRule ^game$ game/index.html [L]
+</IfModule>
+

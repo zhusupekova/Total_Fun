@@ -17,6 +17,11 @@ npm install
 npm start  # PORT=7071 by default
 ```
 
+## PM2 (prod)
+- Use `ecosystem.config.example.cjs` as template.
+- Keep `BOT_TOKEN` only in server env (`server/.env` or host env), do not hardcode token in repo.
+- Always set `REQUIRE_AUTH=true` for Telegram Mini App production.
+
 ## Notes
 - Physics mirrors the Stage 1 client (2D plane, reflective walls/players).
 - This is a skeleton; client integration is not wired yet in Three.js demo.

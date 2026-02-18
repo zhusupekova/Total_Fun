@@ -1,6 +1,6 @@
 # Total_Fun
 
-MVP 3D PvP игра для Telegram Mini Apps: статичная арена на 4 игроков, сервер-авторитативная физика мяча, mobile-first WebView. Текущее состояние: один матч на 4 игроков, online через WebSocket; офлайн/коллектаблы/магниты и прочие debug-элементы удалены.
+MVP 3D PvP игра для Telegram Mini Apps: статичная арена на 4 игроков, сервер-авторитативная физика мяча, mobile-first WebView. Текущее состояние: один матч на 4 игроков, online через WebSocket; 
 
 ## Требования
 - Node.js 18+
@@ -17,10 +17,12 @@ npm run dev
 ```bash
 npm run build    # статика в out/
 ```
-- Для хостинга в TMA отдавайте содержимое `out/` по HTTPS, укажите URL в BotFather (Web App).
+- Для хостинга в TMA отдавайте содержимое `out/` по HTTPS, укажите URL в BotFather (Web App). При HTTPS WebSocket тоже должен быть **WSS**.
+  - Практика: в BotFather указывать URL с финальным слэшем (`/game/`), чтобы избежать лишних редиректов (Telegram WebView бывает чувствителен к ним). См. `DEPLOY.md` для nginx-примера.
 - E2E smoke (Playwright): запустите dev-сервер и в другом терминале `npm run test:e2e` (BASE_URL можно переопределить).
 - Параметры query:
-  - `ws=ws://host:port` — указать WebSocket сервер.
+  - `ws=ws(s)://host[:port][/path]` — указать WebSocket сервер (в Telegram/HTTPS нужен `wss://`).
+- Env (для прод-сборки, фиксирует WS URL без query): `NEXT_PUBLIC_WS=wss://...`
 - Быстрый локальный WS smoke: `npm run smoke:ws:local` (поднимет сервер на 7071, прогонит smoke, остановит сервер).
 - Локальный полный прогон: `npm run test:all` (lint + build + Playwright).
 
@@ -62,6 +64,7 @@ npm run server:start          # PORT=7071 по умолчанию
 - UI минимален; матчмейкинга нет (single room).
 
 ## Быстрые проверки
-- Online: запустить сервер и подключить `/game?ws=ws://localhost:7071`.
+- Online (dev/http): запустить сервер и подключить `/game?ws=ws://localhost:7071`.
+- Online (prod/https): `/game?ws=wss://YOUR_WS_HOST`.
 - Smoke WS: `npm run smoke:ws -- --url=ws://localhost:7071`.
 - CI локальный: `npm run test:all` (lint + build + Playwright).

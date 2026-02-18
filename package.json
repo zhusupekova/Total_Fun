@@ -3,11 +3,12 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "next dev",
+    "dev": "HOST=0.0.0.0 PORT=3000 next dev",
     "build": "next build",
     "start": "next start",
     "export": "next build",
     "build:assets": "node tools/generate_placeholders.js",
+    "extract:spawns": "node tools/extract_ball_spawns.js",
     "smoke:ws": "node tools/ws_smoke.js",
     "smoke:ws:local": "node tools/run_smoke_local.js",
     "test:e2e": "playwright test",

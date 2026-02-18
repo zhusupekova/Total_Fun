@@ -3,20 +3,44 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 const app = document.getElementById('app');
+if (!app) {
+  throw new Error('Missing #app root element');
+}
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0d111c);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.2));
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = false;
-app.appendChild(renderer.domElement);
+let renderer = null;
+let rendererReady = false;
+function initRenderer() {
+  if (rendererReady && renderer) return renderer;
+  rendererReady = true;
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = false;
+  renderer.setClearColor(0x000000, 1);
+  app.appendChild(renderer.domElement);
+  // Keep canvas visible even while GLB assets are loading; the overlay handles UX.
+  renderer.domElement.style.visibility = 'visible';
+  renderer.domElement.addEventListener('webglcontextlost', (e) => {
+    // Required for Safari/iOS to allow the context to be restored later.
+    e.preventDefault();
+  });
+  return renderer;
+}
 document.documentElement.style.overscrollBehavior = 'none';
 document.body.style.overscrollBehavior = 'none';
 
-const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(0, 9.2, 12.4);
-camera.lookAt(0, 0, 0);
+// Default FOV is set to match the in-game gameplay camera preset (can be overridden by URL params).
+const camera = new THREE.PerspectiveCamera(36, window.innerWidth / window.innerHeight, 0.1, 100);
+const camLookAt = new THREE.Vector3(0, 0, 0); // world-space lookAt
+const camUp = new THREE.Vector3(0, 1, 0);
+const camTempPos = new THREE.Vector3();
+const camTempLook = new THREE.Vector3();
+let camLookZ = 0; // local-space Z target (rotated per-player side)
+// Avoid rendering from the origin during the initial asset-loading overlay (prevents the ball filling the screen).
+camera.position.set(0, 6.2, 8.8);
+camera.lookAt(camLookAt);
 
 const ambient = new THREE.AmbientLight(0x9fb7ff, 0.62);
 scene.add(ambient);
@@ -25,6 +49,26 @@ const dir = new THREE.DirectionalLight(0xffffff, 1.05);
 dir.position.set(8, 14, 7);
 dir.castShadow = false;
 scene.add(dir);
+
+const PALETTE = {
+  outer: 0x181d24,
+  floor: '#cfc8bb',
+  floorPatch: '#c2b9aa',
+  railBase: '#10222b',
+  railTile: '#12c7c7',
+  wood: '#d7a262',
+  woodDark: '#b67d3f',
+  metalLight: '#cdd6e2',
+  metalDark: '#6f7c8a',
+  drumBody: '#5fa6b4',
+  drumTop: '#cfd9e8',
+  drumRing: '#8aa6c5',
+  drumHole: '#0e1626',
+  ventGreen: '#56df7d',
+  ventGray: '#4d565f',
+  backdropTop: '#0b0f18',
+  backdropBottom: '#121926',
+};
 
 function createBackdrop() {
   const radius = 60;
@@ -50,33 +94,118 @@ function createBackdrop() {
 
 createBackdrop();
 
+const ballSpawnPoints = [];
+
+export function getBallSpawnPoints() {
+  // Return a copy to keep internal state immutable.
+  return ballSpawnPoints.map((p) => ({ x: p.x, z: p.z }));
+}
+
+if (typeof window !== 'undefined') {
+  window.getBallSpawnPoints = getBallSpawnPoints;
+}
+
+function collectArenaSpawns(arenaRoot) {
+  arenaSpawnNodes.length = 0;
+  ballSpawnPoints.length = 0;
+  if (!arenaRoot) return;
+
+  arenaRoot.updateMatrixWorld(true);
+
+  // Preferred: author empty nodes named `BallSpawn_*` in the GLB.
+  const foundBallSpawns = [];
+  arenaRoot.traverse((obj) => {
+    if (!obj?.name) return;
+    if (obj.name.startsWith('BallSpawn')) foundBallSpawns.push(obj);
+  });
+  if (foundBallSpawns.length) {
+    const idxFromName = (name) => {
+      const m = String(name).match(/BallSpawn[_\\s-]*(\\d+)/);
+      return m ? Number.parseInt(m[1], 10) : Number.POSITIVE_INFINITY;
+    };
+    foundBallSpawns.sort((a, b) => (idxFromName(a.name) - idxFromName(b.name)) || a.name.localeCompare(b.name));
+    const tmp = new THREE.Vector3();
+    foundBallSpawns.forEach((node) => {
+      arenaSpawnNodes.push(node);
+      node.updateMatrixWorld(true);
+      node.getWorldPosition(tmp);
+      ballSpawnPoints.push({ x: tmp.x, z: tmp.z });
+    });
+    return;
+  }
+
+  // Backwards compatible names (older GLBs).
+  [
+    // preferred corner launchers (clockwise)
+    'Spawn_TopLeft', 'Spawn_TopRight', 'Spawn_BottomRight', 'Spawn_BottomLeft',
+    'Spawn_TL', 'Spawn_TR', 'Spawn_BR', 'Spawn_BL',
+    // legacy names fallback
+    'Spawn_Top', 'Spawn_Right', 'Spawn_Bottom', 'Spawn_Left',
+  ].forEach((name) => {
+    const node = arenaRoot.getObjectByName(name);
+    if (node) arenaSpawnNodes.push(node);
+  });
+  const tmp = new THREE.Vector3();
+  arenaSpawnNodes.forEach((node) => {
+    node.updateMatrixWorld(true);
+    node.getWorldPosition(tmp);
+    ballSpawnPoints.push({ x: tmp.x, z: tmp.z });
+  });
+}
+
 const ARENA = { width: 12, height: 8, wallHeight: 1.2, playerDepth: 0.6, ballRadius: 0.5 };
-const SIDE_ZONES = {
-  top: { x: [-6, 6], z: [-4, -1.5] },
-  bottom: { x: [-6, 6], z: [1.5, 4] },
-  left: { x: [-6, -3], z: [-4, 4] },
-  right: { x: [3, 6], z: [-4, 4] },
-};
-const SIDE_ANCHOR = {
-  top: () => ({ z: (SIDE_ZONES.top.z[0] + SIDE_ZONES.top.z[1]) / 2 }),
-  bottom: () => ({ z: (SIDE_ZONES.bottom.z[0] + SIDE_ZONES.bottom.z[1]) / 2 }),
-  left: () => ({ x: (SIDE_ZONES.left.x[0] + SIDE_ZONES.left.x[1]) / 2 }),
-  right: () => ({ x: (SIDE_ZONES.right.x[0] + SIDE_ZONES.right.x[1]) / 2 }),
-};
+// Visual/physics approximations for arena obstacles (must match server-side expectations).
+// These obstacles are used only for visual safety clamping on the client; the server remains authoritative.
+const ARENA_OBSTACLES = { postRadius: 0.9 };
 const PHYSICS = {
   playerSpeed: 6,
-  minSpeed: 2,
-  maxSpeed: 12,
-  damping: 0.995,
+  // Must allow the ball to fully stop (no perpetual drift).
+  minSpeed: 0,
+  maxSpeed: 8,
+  damping: 0.99,
 };
+// Default values are overridden by server config when connected; keep these close to server defaults
+// so offline mode behaves similarly.
+// NOTE: `collider.x` is paddle width (along movement axis). `collider.z` is paddle depth (toward/away from wall).
+const PLAYER = { speed: 6, collider: { x: 3.0, z: 2.2 } };
+// Keep paddles slightly inset from the rink walls so the visual mesh doesn't clip outside.
+const PLAYER_WALL_MARGIN = 0.25;
+// Inner playfield where the ball travels (the border area near walls is decorative).
+const FIELD = { width: 0, height: 0 };
+
+function recomputeBallField() {
+  // Must not depend on `params` here: this runs early during module init.
+  let margin = 0;
+  try {
+    const sp = new URLSearchParams(window.location.search);
+    const raw = sp.get('fieldMargin');
+    const parsed = raw == null ? null : Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0) margin = parsed;
+  } catch {}
+
+  const halfW = (ARENA.width / 2) - margin;
+  const halfH = (ARENA.height / 2) - margin;
+
+  const r = ARENA.ballRadius;
+  const minHalf = Math.max(r + 0.05, 0.2);
+  const safeHalfW = Number.isFinite(halfW) && halfW > minHalf ? halfW : (ARENA.width / 2);
+  const safeHalfH = Number.isFinite(halfH) && halfH > minHalf ? halfH : (ARENA.height / 2);
+  FIELD.width = safeHalfW * 2;
+  FIELD.height = safeHalfH * 2;
+}
+
+recomputeBallField();
 const READY_DURATION_MS = 2000;
 let readyEndsAt = null;
 const MAX_RECONNECT_ATTEMPTS = 8;
+const SNAPSHOT_STALL_MS = 2500;
 const ASSETS = {
   arena: '/assets/arena.glb',
   ball: '/assets/ball.glb',
-  boat: '/assets/boat.glb',
-  playerFallback: '/assets/player.glb',
+  // Optional: if you upload these later, set the paths back.
+  // Keeping them null avoids noisy 404s/warnings in production builds.
+  boat: null,
+  playerFallback: null,
   players: {
     top: '/assets/player_cat.glb',
     right: '/assets/player_dog.glb',
@@ -84,41 +213,258 @@ const ASSETS = {
     left: '/assets/player_pigeon.glb',
   },
 };
-const PALETTE = {
-  outer: 0x181d24,
-  floor: '#cfc8bb',
-  floorPatch: '#c2b9aa',
-  railBase: '#10222b',
-  railTile: '#12c7c7',
-  wood: '#d7a262',
-  woodDark: '#b67d3f',
-  metalLight: '#cdd6e2',
-  metalDark: '#6f7c8a',
-  drumBody: '#5fa6b4',
-  drumTop: '#cfd9e8',
-  drumRing: '#8aa6c5',
-  drumHole: '#0e1626',
-  ventGreen: '#56df7d',
-  ventGray: '#4d565f',
-  backdropTop: '#0b0f18',
-  backdropBottom: '#121926',
-};
 const SPAWN_PADS = [];
 let nextSpawnPad = 0;
 const playerPrefabs = new Map();
 let playerFallbackPrefab = null;
 let boatPrefab = null;
-const TARGET_PLAYER_SIZE = { x: 3.0, z: 1.2 };
-const TARGET_BOAT_SIZE = { x: 3.0, z: 1.4 };
-const CHARACTER_IN_BOAT_Y = 0.6;
+const arenaSpawnNodes = [];
+// Target footprint in our game units. The shipped player GLBs are ~1.4 x 2.0 (XZ),
+// so the old `z: 1.2` was shrinking them too much and made the ball look enormous.
+const TARGET_PLAYER_SIZE = { x: 2.6, z: 2.6 };
+const TARGET_BOAT_SIZE = { x: 2.6, z: 2.6 };
 const params = new URLSearchParams(window.location.search);
-const envWs = process.env.NEXT_PUBLIC_WS;
-const storedWs = typeof localStorage !== 'undefined' ? localStorage.getItem('tf_ws_url') : null;
-const wsUrl = params.get('ws') || envWs || storedWs || 'ws://localhost:7071';
+const PAGE_WS_PROTO = window.location.protocol === 'https:' ? 'wss' : 'ws';
 
-// Telegram Mini App bootstrap with graceful fallback
-const tg = typeof window !== 'undefined' ? window.Telegram?.WebApp : null;
-if (tg) {
+// Prevent Telegram mobile WebView (and browsers) from scrolling/drag-to-close while the user is playing.
+// CSS `touch-action: none` is not always sufficient on its own, so also cancel touchmove.
+try {
+  document.body.addEventListener(
+    'touchmove',
+    (e) => {
+      if (e.cancelable) e.preventDefault();
+    },
+    { passive: false }
+  );
+} catch {}
+
+function safeLocalStorageGet(key) {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeLocalStorageSet(key, value) {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(key, value);
+  } catch {}
+}
+
+function normalizeWsUrl(raw) {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+
+  // Allow specifying WS server via https URL (common in docs/configs).
+  if (s.startsWith('https://')) return `wss://${s.slice('https://'.length)}`;
+  if (s.startsWith('http://')) return `ws://${s.slice('http://'.length)}`;
+
+  // `ws://` from an https page is blocked as mixed content, upgrade automatically.
+  if (PAGE_WS_PROTO === 'wss' && s.startsWith('ws://')) return `wss://${s.slice('ws://'.length)}`;
+
+  if (s.startsWith('ws://') || s.startsWith('wss://')) return s;
+
+  // Relative path like `/ws` -> same origin.
+  if (s.startsWith('/')) return `${PAGE_WS_PROTO}://${window.location.host}${s}`;
+
+  // host[:port][/path]
+  return `${PAGE_WS_PROTO}://${s}`;
+}
+// Tunables: seating + kickoff visuals
+const BOAT_SEAT_Y_RATIO = 0.5;
+const CHARACTER_PELVIS_Y_RATIO = 0.5;
+// `boat.glb` is authored with its "nose" roughly along -X in local space.
+// Rotate it so the nose points along +Z (same forward as our player models).
+const BOAT_YAW_OFFSET = (() => {
+  const raw = params.get('boatYaw');
+  const parsed = raw == null ? null : Number(raw);
+  if (Number.isFinite(parsed)) return parsed;
+  return Math.PI / 2;
+})();
+const OFFLINE_KICKOFF_CORNER_MARGIN = 0.02;
+const PLAYER_Y = 0.0;
+
+const MODEL_YAW_OFFSET = (() => {
+  // Static yaw correction for the character model (glTF forward can vary by asset).
+  // Keep default at 0, override via `?yaw=...` (radians) when an asset is authored differently.
+  const raw = params.get('yaw');
+  const parsed = raw == null ? null : Number(raw);
+  if (Number.isFinite(parsed)) return parsed;
+  return 0;
+})();
+const currentHost = window.location.hostname || 'localhost';
+const isProdMainHost = currentHost === 'dvkfh.ru' || currentHost === 'www.dvkfh.ru';
+const wsFromQuery = normalizeWsUrl(params.get('ws'));
+const envWs = normalizeWsUrl(process.env.NEXT_PUBLIC_WS);
+const storedWsRaw = safeLocalStorageGet('tf_ws_url');
+const storedWs = (() => {
+  if (!storedWsRaw) return null;
+  // Drop stale broken value from old builds on production host.
+  if (isProdMainHost && /:\/\/(?:www\.)?dvkfh\.ru:7071\b/.test(storedWsRaw)) return null;
+  // Drop localhost WS URLs when we're not actually running on localhost (common when moving from dev -> prod).
+  if (!['localhost', '127.0.0.1', '0.0.0.0'].includes(currentHost) && /:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?:[:/]|$)/.test(storedWsRaw)) {
+    return null;
+  }
+  return normalizeWsUrl(storedWsRaw);
+})();
+const defaultWsCandidates = (() => {
+  const port = params.get('wsp') || 7071;
+  if (isProdMainHost) {
+    // Keep several candidates for prod to survive infra changes:
+    // - dedicated ws subdomain (with or without `/ws`)
+    // - same-origin `/ws` behind TLS reverse proxy
+    // - direct port (rare; usually blocked on mobile)
+    const baseHost = currentHost.startsWith('www.') ? currentHost.slice(4) : currentHost;
+    const candidates = [
+      // Prefer dedicated WS host first (less brittle than a path proxy and avoids extra 404 attempts).
+      `${PAGE_WS_PROTO}://ws.${baseHost}`,
+      `${PAGE_WS_PROTO}://ws.${baseHost}/ws`,
+      // Fallback: same-origin WS path behind a reverse proxy.
+      `${PAGE_WS_PROTO}://${currentHost}/ws`,
+      `${PAGE_WS_PROTO}://${baseHost}/ws`,
+      `${PAGE_WS_PROTO}://${currentHost}:${port}`,
+      `${PAGE_WS_PROTO}://${baseHost}:${port}`,
+    ];
+    return [...new Set(candidates.map(normalizeWsUrl).filter(Boolean))];
+  }
+
+  // Heuristics for common deployments:
+  // 1) Same-origin `/ws` behind TLS reverse proxy (port 443).
+  // 2) Dedicated ws subdomain (e.g. ws.example.com).
+  // 3) Direct port access (e.g. :7071).
+  const baseHost = currentHost.startsWith('www.') ? currentHost.slice(4) : currentHost;
+  const isIp = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(baseHost);
+  const isLocal = baseHost === 'localhost' || baseHost === '127.0.0.1' || baseHost === '0.0.0.0';
+
+  const candidates = [];
+  if (isLocal || isIp) {
+    // Local/test setups typically expose WS on a port (no TLS reverse proxy).
+    candidates.push(`${PAGE_WS_PROTO}://${currentHost}:${port}`);
+    candidates.push(`${PAGE_WS_PROTO}://${currentHost}/ws`);
+  } else {
+    candidates.push(`${PAGE_WS_PROTO}://${currentHost}/ws`);
+    if (!baseHost.startsWith('ws.') && baseHost.includes('.')) {
+      candidates.push(`${PAGE_WS_PROTO}://ws.${baseHost}`);
+    }
+    candidates.push(`${PAGE_WS_PROTO}://${currentHost}:${port}`);
+  }
+  return [...new Set(candidates.map(normalizeWsUrl).filter(Boolean))];
+})();
+const wsCandidates = (() => {
+  if (wsFromQuery) return [wsFromQuery];
+  if (envWs) return [envWs];
+  const list = [];
+  if (storedWs) list.push(storedWs);
+  defaultWsCandidates.forEach((u) => {
+    if (u && !list.includes(u)) list.push(u);
+  });
+  return list;
+})();
+const wsUrl = wsCandidates[0] || null;
+const wsCandidatesLocked = !!(wsFromQuery || envWs);
+if (wsFromQuery) safeLocalStorageSet('tf_ws_url', wsFromQuery);
+
+// Telegram Mini App bootstrap with graceful fallback.
+// Load Telegram SDK in a non-blocking way: Mini App must still boot if SDK is slow/unavailable.
+const TG_WEBAPP_SRC = 'https://telegram.org/js/telegram-web-app.js';
+let tg = null;
+let tgInitDone = false;
+let tgScriptRequested = false;
+let cachedInitDataRaw = '';
+
+function safeDecodeUriComponent(value) {
+  try {
+    return decodeURIComponent(String(value));
+  } catch {
+    return String(value);
+  }
+}
+
+function readInitDataFromLocation() {
+  if (typeof window === 'undefined') return '';
+  try {
+    const fromSearch = new URLSearchParams(window.location.search);
+    const direct = fromSearch.get('tgWebAppData') || fromSearch.get('initData') || '';
+    if (direct) return safeDecodeUriComponent(direct);
+  } catch {}
+
+  try {
+    const hashRaw = String(window.location.hash || '').replace(/^#/, '');
+    if (!hashRaw) return '';
+    const fromHash = new URLSearchParams(hashRaw);
+    const v = fromHash.get('tgWebAppData') || fromHash.get('initData') || '';
+    if (!v) return '';
+    return safeDecodeUriComponent(v);
+  } catch {
+    return '';
+  }
+}
+
+function getTelegramInitData() {
+  try {
+    const sdkValue = window?.Telegram?.WebApp?.initData;
+    if (typeof sdkValue === 'string' && sdkValue.length > 0) {
+      cachedInitDataRaw = sdkValue;
+      return sdkValue;
+    }
+  } catch {}
+  if (!cachedInitDataRaw) cachedInitDataRaw = readInitDataFromLocation();
+  return cachedInitDataRaw || '';
+}
+
+function tryReadTelegramUserFromInitData() {
+  const raw = getTelegramInitData();
+  if (!raw) return null;
+  try {
+    const p = new URLSearchParams(raw);
+    const userRaw = p.get('user');
+    if (!userRaw) return null;
+    const user = JSON.parse(userRaw);
+    if (!user || typeof user !== 'object') return null;
+    return user;
+  } catch {
+    return null;
+  }
+}
+
+function ensureTelegramWebAppScript() {
+  if (typeof window === 'undefined') return;
+  if (window.Telegram?.WebApp) return;
+  if (tgScriptRequested) return;
+  tgScriptRequested = true;
+
+  try {
+    const existing = document.querySelector(`script[src="${TG_WEBAPP_SRC}"]`);
+    if (existing) {
+      existing.addEventListener('load', () => tryInitTelegramWebApp(), { once: true });
+      tryInitTelegramWebApp();
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = TG_WEBAPP_SRC;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => tryInitTelegramWebApp();
+    script.onerror = () => {
+      console.warn('Failed to load Telegram WebApp SDK');
+    };
+    document.head.appendChild(script);
+  } catch (err) {
+    console.warn('Telegram WebApp script injection failed', err);
+  }
+}
+
+function tryInitTelegramWebApp() {
+  if (tgInitDone) return;
+  const candidate = typeof window !== 'undefined' ? window.Telegram?.WebApp : null;
+  if (!candidate) return;
+  tg = candidate;
+  tgInitDone = true;
   try {
     tg.ready();
     tg.expand();
@@ -135,16 +481,43 @@ if (tg) {
   } catch (err) {
     console.warn('Telegram WebApp init failed', err);
   }
-} else {
-  console.warn('Telegram WebApp not detected; running in fallback mode');
 }
-const audioContext = typeof AudioContext !== 'undefined' ? new AudioContext() : null;
+
+ensureTelegramWebAppScript();
+tryInitTelegramWebApp();
+if (!tgInitDone) {
+  const start = Date.now();
+  const timer = setInterval(() => {
+    ensureTelegramWebAppScript();
+    tryInitTelegramWebApp();
+    if (tgInitDone || Date.now() - start > 5000) {
+      clearInterval(timer);
+      if (!tgInitDone) {
+        console.warn('Telegram WebApp not detected; running in fallback mode');
+      }
+    }
+  }, 100);
+}
+const audioContext = (() => {
+  try {
+    if (typeof AudioContext === 'undefined') return null;
+    return new AudioContext();
+  } catch (err) {
+    console.warn('AudioContext init failed', err);
+    return null;
+  }
+})();
 const sfxBuffers = new Map();
 let audioUnlocked = false;
 const audioState = { enabled: true };
 const net = {
   enabled: true,
-  wsUrl: wsUrl || 'ws://localhost:7071',
+  wsUrl: wsUrl || '',
+  wsCandidates,
+  wsCandidateIndex: 0,
+  wsCandidateLocked: wsCandidatesLocked,
+  everConnected: false,
+  authRetryStartedAt: 0,
   ws: null,
   connected: false,
   id: null,
@@ -170,6 +543,8 @@ const net = {
   snapshotIntervalMs: 33,
   errorMessage: '',
   avgPing: null,
+  lastSnapshotAt: 0,
+  stallTriggeredAt: 0,
 };
 const overlayDom = {
   root: null,
@@ -184,6 +559,9 @@ let prevMatchState = null;
 let inviteShownSession = false;
 let inviteTimer = null;
 const inviteDom = { root: null, btn: null };
+const landscapeDom = { root: null, btn: null };
+const landscapeState = { required: false, blocked: false, lockRequested: false };
+const MOBILE_LANDSCAPE_SHORT_SIDE_MAX = 1024;
 let matchCount = (() => {
   try {
     const v = parseInt(localStorage.getItem('tf_matches') || '0', 10);
@@ -200,27 +578,128 @@ let metricsSent = false;
 const gltfLoader = new GLTFLoader();
 const texLoader = new THREE.TextureLoader();
 
+let fatalErrorShown = false;
+function showFatalError(err) {
+  if (fatalErrorShown) return;
+  fatalErrorShown = true;
+  const message = typeof err === 'string' ? err : (err?.message || String(err));
+  console.error('[fatal]', err);
+  const el = document.getElementById('error-banner');
+  if (el) {
+    el.textContent = `Fatal error: ${message}`;
+    el.style.display = 'block';
+  }
+}
+
+window.addEventListener('error', (evt) => {
+  showFatalError(evt?.error || evt?.message || 'Unknown error');
+});
+window.addEventListener('unhandledrejection', (evt) => {
+  showFatalError(evt?.reason || 'Unhandled promise rejection');
+});
+
 function resolveIdentity() {
-  const tgUser = window?.Telegram?.WebApp?.initDataUnsafe?.user;
-  const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('tf_identity') : null;
+  const clampText = (value, maxLen, fallback = null) => {
+    if (value == null) return fallback;
+    const s = String(value).trim();
+    if (!s) return fallback;
+    return s.length > maxLen ? s.slice(0, maxLen) : s;
+  };
+  const tgUser = window?.Telegram?.WebApp?.initDataUnsafe?.user || tryReadTelegramUserFromInitData();
+  const stored = safeLocalStorageGet('tf_identity');
   if (stored) {
     try {
       const parsed = JSON.parse(stored);
-      if (parsed.userId && parsed.username) return parsed;
+      const userId = clampText(parsed.userId, 64);
+      const username = clampText(parsed.username, 32);
+      if (userId && username) return { userId, username };
     } catch {}
   }
   const fallbackId = tgUser?.id ? `tg-${tgUser.id}` : `guest-${Math.random().toString(16).slice(2, 8)}`;
   const identity = {
-    userId: tgUser?.id ? String(tgUser.id) : fallbackId,
-    username: tgUser?.username || `Player_${fallbackId.slice(-4)}`,
+    userId: clampText(tgUser?.id ? String(tgUser.id) : fallbackId, 64, fallbackId),
+    username: clampText(tgUser?.username || `Player_${fallbackId.slice(-4)}`, 32, 'Player'),
   };
-  try {
-    localStorage.setItem('tf_identity', JSON.stringify(identity));
-  } catch {}
+  safeLocalStorageSet('tf_identity', JSON.stringify(identity));
   return identity;
 }
 
 net.identity = resolveIdentity();
+
+function isTouchDevice() {
+  return (navigator.maxTouchPoints || 0) > 0 || 'ontouchstart' in window;
+}
+
+function hasTelegramInitData() {
+  try {
+    const initData = getTelegramInitData();
+    return typeof initData === 'string' && initData.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function isProbablyTelegramUserAgent() {
+  try {
+    const ua = navigator.userAgent || '';
+    // Telegram WebView UAs typically contain "Telegram". This is best-effort only.
+    return /\bTelegram\b/i.test(ua);
+  } catch {
+    return false;
+  }
+}
+
+function isLandscapeViewport() {
+  return window.innerWidth >= window.innerHeight;
+}
+
+function shouldRequireLandscapeMode() {
+  // Only enforce landscape inside the real Telegram Mini App environment.
+  // In a normal mobile browser (even if `telegram-web-app.js` is loaded), we should not block gameplay.
+  const force = (() => {
+    const raw = params.get('landscape');
+    return raw === '1' || raw === 'true';
+  })();
+  if (!force && !hasTelegramInitData()) return false;
+  if (!isTouchDevice()) return false;
+  const shortSide = Math.min(window.innerWidth, window.innerHeight);
+  return shortSide <= MOBILE_LANDSCAPE_SHORT_SIDE_MAX;
+}
+
+function syncLandscapeGate() {
+  landscapeState.required = shouldRequireLandscapeMode();
+  landscapeState.blocked = landscapeState.required && !isLandscapeViewport();
+  document.body.classList.toggle('landscape-required', landscapeState.blocked);
+  if (landscapeDom.root) {
+    landscapeDom.root.classList.toggle('visible', landscapeState.blocked);
+  }
+}
+
+async function requestLandscapeMode() {
+  landscapeState.lockRequested = true;
+  try {
+    if (typeof tg?.requestFullscreen === 'function' && !tg.isFullscreen) {
+      await tg.requestFullscreen();
+    } else if (typeof tg?.expand === 'function') {
+      tg.expand();
+    }
+  } catch (err) {
+    console.warn('Telegram fullscreen request failed', err);
+  }
+  try {
+    if (window.screen?.orientation?.lock) {
+      await window.screen.orientation.lock('landscape');
+    }
+  } catch {}
+  try {
+    if (!document.fullscreenElement && document.documentElement?.requestFullscreen) {
+      await document.documentElement.requestFullscreen();
+      if (window.screen?.orientation?.lock) {
+        await window.screen.orientation.lock('landscape');
+      }
+    }
+  } catch {}
+}
 
 
 function enableShadows(object) {
@@ -233,6 +712,7 @@ function enableShadows(object) {
 }
 
 async function loadOptionalGltf(url) {
+  if (!url) return null;
   try {
     return await gltfLoader.loadAsync(url);
   } catch (err) {
@@ -490,15 +970,146 @@ function createArena() {
   return group;
 }
 
-let arenaGroup = createArena();
+// arenaGroup is assigned after loading arena.glb; no temporary/test arena is added
+let arenaGroup = null;
+let arenaFloorY = 0;
+let rinkDecorGroup = null;
+
+function disposeGroup(group) {
+  if (!group) return;
+  group.traverse((obj) => {
+    if (!obj?.isMesh) return;
+    if (obj.geometry?.dispose) obj.geometry.dispose();
+    const mat = obj.material;
+    if (Array.isArray(mat)) {
+      mat.forEach((m) => {
+        if (m?.map?.dispose) m.map.dispose();
+        if (m?.dispose) m.dispose();
+      });
+    } else if (mat) {
+      if (mat.map?.dispose) mat.map.dispose();
+      if (mat.dispose) mat.dispose();
+    }
+  });
+}
+
+function rebuildRinkDecor() {
+  if (rinkDecorGroup) {
+    scene.remove(rinkDecorGroup);
+    disposeGroup(rinkDecorGroup);
+    rinkDecorGroup = null;
+  }
+
+  const y0 = floorY();
+  const halfW = ARENA.width / 2;
+  const halfH = ARENA.height / 2;
+  const wallH = 0.55;
+  const wallT = 0.35;
+
+  const group = new THREE.Group();
+  group.name = 'tf_rink_decor';
+
+  const wallMat = new THREE.MeshStandardMaterial({
+    color: 0x10222b,
+    roughness: 0.5,
+    metalness: 0.25,
+    emissive: 0x00adb0,
+    emissiveIntensity: 0.22,
+  });
+  const wallGeomH = new THREE.BoxGeometry(ARENA.width + wallT * 2, wallH, wallT);
+  const wallGeomV = new THREE.BoxGeometry(wallT, wallH, ARENA.height + wallT * 2);
+
+  const topWall = new THREE.Mesh(wallGeomH, wallMat);
+  topWall.position.set(0, y0 + wallH / 2, -halfH - wallT / 2);
+  const bottomWall = topWall.clone();
+  bottomWall.position.z = halfH + wallT / 2;
+
+  const leftWall = new THREE.Mesh(wallGeomV, wallMat);
+  leftWall.position.set(-halfW - wallT / 2, y0 + wallH / 2, 0);
+  const rightWall = leftWall.clone();
+  rightWall.position.x = halfW + wallT / 2;
+
+  group.add(topWall, bottomWall, leftWall, rightWall);
+
+  // Corner columns (slightly outside the rink) for framing, like in the reference.
+  const colR = 0.58;
+  const colH = 1.0;
+  const colGeom = new THREE.CylinderGeometry(colR, colR, colH, 18);
+  const colMat = new THREE.MeshStandardMaterial({
+    color: 0x1a2a35,
+    roughness: 0.42,
+    metalness: 0.3,
+    emissive: 0x00adb0,
+    emissiveIntensity: 0.16,
+  });
+  [
+    { x: -halfW - wallT / 2, z: -halfH - wallT / 2 },
+    { x: halfW + wallT / 2, z: -halfH - wallT / 2 },
+    { x: -halfW - wallT / 2, z: halfH + wallT / 2 },
+    { x: halfW + wallT / 2, z: halfH + wallT / 2 },
+  ].forEach((p) => {
+    const c = new THREE.Mesh(colGeom, colMat);
+    c.position.set(p.x, y0 + colH / 2, p.z);
+    group.add(c);
+  });
+
+  // Tube/bumper posts at BallSpawn points so the player can see where the ball appears.
+  const tubeR = ARENA_OBSTACLES.postRadius;
+  const tubeH = 0.75;
+  const tubeGeom = new THREE.CylinderGeometry(tubeR, tubeR, tubeH, 26);
+  const tubeMat = new THREE.MeshStandardMaterial({
+    color: 0x22313b,
+    roughness: 0.55,
+    metalness: 0.22,
+    emissive: 0x00adb0,
+    emissiveIntensity: 0.22,
+  });
+  const spawnPts = getBallSpawnPoints();
+  spawnPts.forEach((p) => {
+    if (!Number.isFinite(p?.x) || !Number.isFinite(p?.z)) return;
+    const t = new THREE.Mesh(tubeGeom, tubeMat);
+    t.position.set(p.x, y0 + tubeH / 2, p.z);
+    group.add(t);
+  });
+
+  scene.add(group);
+  rinkDecorGroup = group;
+}
+
+function computeArenaFloorY(arenaRoot) {
+  if (!arenaRoot) return 0;
+  // Raycasting depends on correct world matrices. This must run after arena scale/position adjustments.
+  arenaRoot.updateMatrixWorld(true);
+  const raycaster = new THREE.Raycaster();
+  raycaster.far = 100;
+  const dir = new THREE.Vector3(0, -1, 0);
+  const samples = [
+    new THREE.Vector3(0, 25, 0),
+    new THREE.Vector3(0, 25, -ARENA.height * 0.25),
+    new THREE.Vector3(0, 25, ARENA.height * 0.25),
+    new THREE.Vector3(-ARENA.width * 0.25, 25, 0),
+    new THREE.Vector3(ARENA.width * 0.25, 25, 0),
+  ];
+
+  for (const origin of samples) {
+    raycaster.set(origin, dir);
+    const hits = raycaster.intersectObject(arenaRoot, true);
+    if (!hits.length) continue;
+    // Prefer an upward-facing surface (the play floor).
+    for (const h of hits) {
+      const ny = h?.face?.normal?.y;
+      if (typeof ny === 'number' && ny > 0.6) return h.point.y;
+    }
+    return hits[0].point.y;
+  }
+  return 0;
+}
+
+function floorY() {
+  return arenaFloorY;
+}
 
 const playerMatColors = [0xff795a, 0xffd45c, 0x7ae7ff, 0xb28bff];
-const sideYaw = {
-  top: 0,
-  right: Math.PI / 2,
-  bottom: Math.PI,
-  left: -Math.PI / 2,
-};
 const playerPortraits = {};
 const playerColorBySide = {
   top: 0xff9a46, // cat orange brighter
@@ -508,6 +1119,89 @@ const playerColorBySide = {
 };
 const sideHex = (side) => `#${(playerColorBySide[side] ?? 0xffffff).toString(16).padStart(6, '0')}`;
 
+const SIDE_CENTER_YAW = {
+  top: 0,
+  right: -Math.PI / 2,
+  bottom: Math.PI,
+  left: Math.PI / 2,
+};
+
+function pickYawFacingCenterOrVelocity(playerRoot, side, velocity = null) {
+  if (!playerRoot) return SIDE_CENTER_YAW[side] ?? 0;
+
+  // Arcade rule: always face the arena center. Rotation never follows movement direction.
+  // This matches Crash Bash Ballistix-style paddles.
+  const dirX = -playerRoot.position.x;
+  const dirZ = -playerRoot.position.z;
+
+  if (dirX * dirX + dirZ * dirZ < 1e-8) {
+    return SIDE_CENTER_YAW[side] ?? 0;
+  }
+  return Math.atan2(dirX, dirZ);
+}
+
+function applyPlayerFacing(playerRoot, side, velocity = null) {
+  if (!playerRoot) return;
+  const yaw = pickYawFacingCenterOrVelocity(playerRoot, side, velocity);
+  playerRoot.rotation.set(0, yaw, 0);
+}
+
+function placeCharacterInBoat(character, boat, seat = null) {
+  // Only adjust vertical placement. Rotation is handled separately so boat + character can share yaw.
+  // Preserve prefab pivot/centering offsets from normalizePrefab(). Resetting to (0,0,0) after the
+  // playerRoot refactor makes the boat appear attached to the character's neck/head for some assets.
+  if (!character.userData._baseLocalPos) {
+    character.userData._baseLocalPos = character.position.clone();
+  }
+  character.position.copy(character.userData._baseLocalPos);
+
+  const charBox = new THREE.Box3().setFromObject(character);
+  const charSize = new THREE.Vector3();
+  charBox.getSize(charSize);
+  if (charSize.y <= 1e-4) return;
+
+  // Keep the boat around the character's torso/hips, not neck/head.
+  const pelvisY = charBox.min.y + charSize.y * CHARACTER_PELVIS_Y_RATIO;
+  if (seat) {
+    character.position.y -= pelvisY;
+    return;
+  }
+
+  const boatBox = new THREE.Box3().setFromObject(boat);
+  const boatSize = new THREE.Vector3();
+  boatBox.getSize(boatSize);
+  const seatY = boatBox.min.y + boatSize.y * BOAT_SEAT_Y_RATIO;
+  character.position.y += seatY - pelvisY;
+}
+
+const prefabHasSkinCache = new WeakMap();
+function prefabHasSkinnedMeshes(root) {
+  if (!root) return false;
+  if (prefabHasSkinCache.has(root)) return prefabHasSkinCache.get(root);
+  let found = false;
+  root.traverse((child) => {
+    if (child?.isSkinnedMesh) found = true;
+  });
+  prefabHasSkinCache.set(root, found);
+  return found;
+}
+
+function clonePrefabSafe(prefab) {
+  if (!prefab) return null;
+  try {
+    // Avoid SkeletonUtils.clone unless we actually need it (it can be expensive / flaky on some mobile WebViews).
+    if (prefabHasSkinnedMeshes(prefab)) return cloneSkinned(prefab);
+    return prefab.clone(true);
+  } catch (err) {
+    console.warn('Prefab clone failed; falling back', err);
+    try {
+      return prefab.clone(true);
+    } catch {
+      return null;
+    }
+  }
+}
+
 function createPlayer(colorIndex, side) {
   const characterPrefab = prefabForSide(side) || playerFallbackPrefab;
 
@@ -516,28 +1210,37 @@ function createPlayer(colorIndex, side) {
     playerRoot.name = 'playerRoot';
     playerRoot.userData.side = side;
 
-    const boat = cloneSkinned(boatPrefab);
+    const boat = clonePrefabSafe(boatPrefab);
     boat.name = 'boat';
+    boat.rotation.y = BOAT_YAW_OFFSET;
     enableShadows(boat);
 
-    const character = cloneSkinned(characterPrefab);
+    const character = clonePrefabSafe(characterPrefab);
     character.name = 'character';
+    character.rotation.y = MODEL_YAW_OFFSET;
     enableShadows(character);
-    character.position.y += CHARACTER_IN_BOAT_Y;
 
-    boat.add(character);
+    placeCharacterInBoat(character, boat, null);
     playerRoot.add(boat);
-    playerRoot.rotation.y = sideYaw[side] ?? 0;
+    playerRoot.add(character);
+    applyPlayerFacing(playerRoot, side);
     return playerRoot;
   }
 
   if (characterPrefab) {
-    const cloned = cloneSkinned(characterPrefab);
-    enableShadows(cloned);
-    cloned.scale.multiplyScalar(1.25);
-    cloned.rotation.y = sideYaw[side] ?? 0;
-    cloned.userData.side = side;
-    return cloned;
+    const playerRoot = new THREE.Object3D();
+    playerRoot.name = 'playerRoot';
+    playerRoot.userData.side = side;
+
+    const character = clonePrefabSafe(characterPrefab);
+    character.name = 'character';
+    character.rotation.y = MODEL_YAW_OFFSET;
+    enableShadows(character);
+
+    // Keep the prefab's local pivot correction from normalizePrefab().
+    playerRoot.add(character);
+    applyPlayerFacing(playerRoot, side);
+    return playerRoot;
   }
 
   const group = new THREE.Group();
@@ -591,6 +1294,7 @@ function createPlayer(colorIndex, side) {
   bumper.position.y = 0.2;
   group.add(bumper);
 
+  group.rotation.y = (SIDE_CENTER_YAW[side] ?? 0) + MODEL_YAW_OFFSET;
   group.userData.side = side;
   return group;
 }
@@ -629,6 +1333,8 @@ async function loadSfx(name, url) {
     const res = await fetch(url);
     if (!res.ok) return null;
     const array = await res.arrayBuffer();
+    // Placeholder/empty audio files should be silently ignored (avoid noisy decode warnings on mobile/iOS).
+    if (!array?.byteLength) return null;
     const buffer = await audioContext.decodeAudioData(array);
     sfxBuffers.set(name, buffer);
     return buffer;
@@ -654,7 +1360,7 @@ function unlockAudio() {
   if (audioUnlocked || !audioContext) return;
   audioContext.resume().then(() => {
     audioUnlocked = true;
-  });
+  }).catch(() => {});
 }
 
 function fireHaptics(style = 'medium') {
@@ -673,6 +1379,40 @@ function triggerImpactFx() {
   camKick.time = camKick.duration;
 }
 
+function viewYawForSide(side) {
+  // Rotate the camera so the local player is always "bottom" like in Crash Bash Ballistix.
+  switch (side) {
+    case 'top':
+      return Math.PI;
+    case 'left':
+      return -Math.PI / 2;
+    case 'right':
+      return Math.PI / 2;
+    case 'bottom':
+    default:
+      return 0;
+  }
+}
+
+function currentViewYaw() {
+  return viewYawForSide(net.side);
+}
+
+function applyCameraFromLocal(localPos) {
+  const yaw = currentViewYaw();
+  // `localPos` is a view-space offset from the fixed pivot (arena center).
+  camTempPos.copy(camPivot).add(localPos).applyAxisAngle(camUp, yaw);
+  camera.position.copy(camTempPos);
+  camTempLook.set(camPivot.x, floorY(), camPivot.z + camLookZ).applyAxisAngle(camUp, yaw);
+  camLookAt.copy(camTempLook);
+  camera.lookAt(camLookAt);
+}
+
+function updateCameraPivot() {
+  // Fixed gameplay camera: pivot stays at the arena center (view space).
+  camPivot.set(0, floorY(), 0);
+}
+
 function updateCameraIntro(dt) {
   if (!camIntro.active) {
     camRestPos.copy(camBasePos);
@@ -682,8 +1422,6 @@ function updateCameraIntro(dt) {
   const t = THREE.MathUtils.clamp(camIntro.time / camIntro.duration, 0, 1);
   const eased = t * t * (3 - 2 * t); // smoothstep
   tempVec3.lerpVectors(camIntro.start, camIntro.end, eased);
-  camera.position.copy(tempVec3);
-  camera.lookAt(0, 0, 0);
   camRestPos.copy(tempVec3);
   if (camIntro.time >= camIntro.duration) {
     camIntro.active = false;
@@ -691,6 +1429,7 @@ function updateCameraIntro(dt) {
 }
 
 function updateVisualFx(dt) {
+  updateCameraPivot();
   if (ballFx.squashTime > 0 && ballMesh?.scale) {
     ballFx.squashTime = Math.max(0, ballFx.squashTime - dt);
     const t = 1 - ballFx.squashTime / ballFx.squashDuration;
@@ -704,9 +1443,10 @@ function updateVisualFx(dt) {
     camKick.time = Math.max(0, camKick.time - dt);
     const k = 1 - camKick.time / camKick.duration;
     const offset = THREE.MathUtils.lerp(camKick.strength, 0, k);
-    camera.position.set(camRestPos.x, camRestPos.y, camRestPos.z + offset);
+    tempVec3.set(camRestPos.x, camRestPos.y, camRestPos.z + offset);
+    applyCameraFromLocal(tempVec3);
   } else {
-    camera.position.copy(camRestPos);
+    applyCameraFromLocal(camRestPos);
   }
 }
 
@@ -767,6 +1507,12 @@ function loadPortraitTexture(path) {
 
 const players = [];
 const sides = ['top', 'right', 'bottom', 'left'];
+const zeroVec3 = new THREE.Vector3();
+
+function ensurePlayerMotionState(player) {
+  if (!player.prevPos) player.prevPos = new THREE.Vector3().copy(player.mesh.position);
+  if (!player.velocity) player.velocity = new THREE.Vector3();
+}
 
 function disposePlayer(player) {
   if (!player) return;
@@ -788,9 +1534,11 @@ function initOfflinePlayers() {
   sides.forEach((side, idx) => {
     const mesh = createPlayer(idx, side);
     const pos = playerDefaultPosition(side);
-    mesh.position.set(pos.x, 0.5, pos.z);
+    mesh.position.set(pos.x, floorY(), pos.z);
     scene.add(mesh);
     const player = { mesh, side, isLocal: idx === 0, id: idx === 0 ? 'local' : `bot-${idx}` };
+    ensurePlayerMotionState(player);
+    applyPlayerFacing(mesh, side);
     attachLabel(player, player.isLocal ? 'You' : `Bot ${idx}`);
     const portraitPath = playerPortraits[side];
     if (portraitPath) {
@@ -806,8 +1554,11 @@ function applyPrefabsToExistingPlayers() {
     const newMesh = createPlayer(colorIndexBySide(p.side), p.side);
     if (!newMesh) return;
     newMesh.position.copy(p.mesh.position);
+    newMesh.rotation.copy(p.mesh.rotation);
     scene.remove(p.mesh);
     p.mesh = newMesh;
+    ensurePlayerMotionState(p);
+    p.prevPos.copy(newMesh.position);
     scene.add(newMesh);
     attachLabel(p, p.isLocal ? (p.id === 'local' ? 'You' : p.id) : p.id || 'player');
     const portraitPath = playerPortraits[p.side];
@@ -821,17 +1572,22 @@ function applyPrefabsToExistingPlayers() {
 // players are spawned upon receiving snapshots from server
 
 function playerDefaultPosition(side) {
-  const zone = SIDE_ZONES[side];
-  if (!zone) return { x: 0, z: 0 };
-  const base = {
-    x: (zone.x[0] + zone.x[1]) / 2,
-    z: (zone.z[0] + zone.z[1]) / 2,
-  };
-  if (SIDE_ANCHOR[side]) {
-    const anchor = SIDE_ANCHOR[side]();
-    return { x: anchor.x ?? base.x, z: anchor.z ?? base.z };
+  const halfW = ARENA.width / 2;
+  const halfH = ARENA.height / 2;
+  const halfX = (PLAYER.collider?.x ?? 2.5) * 0.5;
+  const halfZ = (PLAYER.collider?.z ?? ARENA.playerDepth ?? 0.6) * 0.5;
+  switch (side) {
+    case 'top':
+      return { x: 0, z: -halfH + halfZ };
+    case 'bottom':
+      return { x: 0, z: halfH - halfZ };
+    case 'left':
+      return { x: -halfW + halfX, z: 0 };
+    case 'right':
+      return { x: halfW - halfX, z: 0 };
+    default:
+      return { x: 0, z: 0 };
   }
-  return base;
 }
 
 function makeBallTexture() {
@@ -857,7 +1613,115 @@ function makeBallTexture() {
   return tex;
 }
 
-const ballGeom = new THREE.SphereGeometry(0.5, 36, 22);
+const BALL_VISUAL_RADIUS_FACTOR = (() => {
+  // Visual-only scale multiplier relative to the authoritative physics radius.
+  // Tweak quickly via `?ballScale=0.85`.
+  const raw = params.get('ballScale');
+  const parsed = raw == null ? null : Number(raw);
+  if (Number.isFinite(parsed) && parsed > 0.2 && parsed < 1.5) return parsed;
+  // Default: noticeably smaller than the player (visual-only).
+  return 0.4;
+})();
+
+const ballState = {
+  // Ball must be stationary after spawn. It only moves after a player hit / impulse.
+  velocity: new THREE.Vector2(0, 0),
+  radius: ARENA.ballRadius,
+};
+const ballVisualRadius = () => ballState.radius * BALL_VISUAL_RADIUS_FACTOR;
+const lastBallPos = new THREE.Vector2();
+const lastBallVel = new THREE.Vector2();
+const tempVec2 = new THREE.Vector2();
+const tempVec3 = new THREE.Vector3();
+const tempNormalXZ = new THREE.Vector3();
+const tempVel3 = new THREE.Vector3();
+const impactScale = new THREE.Vector3(1.15, 0.85, 1.15);
+const normalScale = new THREE.Vector3(1, 1, 1);
+const ballFx = { squashTime: 0, squashDuration: 0.16 };
+const MIN_REFLECTION_ANGLE = 0.2; // radians-ish component threshold to avoid wall-sticking
+
+// Camera: fixed arcade angle (Crash Bash-style).
+// Offsets are defined in "view space": rotate the whole view so the local player is always at the bottom,
+// then apply a fixed pivot at the arena center. The camera does not pan/follow during gameplay.
+const camPivot = new THREE.Vector3(0, 0, 0);
+
+// `camBasePos` / `camRestPos` are view-space offsets from `camPivot`.
+// Default tuned to:
+// - keep the local player fully visible near the bottom
+// - keep the bottom arena edge near the screen border (minimal "behind the player" space)
+// - show the incoming ball trajectory without revealing the entire field at once
+const camBasePos = new THREE.Vector3(0, 8.6, 10.8);
+// MVP: fixed camera only (no shake/kick).
+const camKick = { time: 0, duration: 0.15, strength: 0 };
+const camIntro = {
+  // MVP: fixed gameplay camera only (no intro movement).
+  active: false,
+  time: 0,
+  duration: 0.82,
+  start: new THREE.Vector3(camBasePos.x, camBasePos.y + 1.6, camBasePos.z + 1.6),
+  end: camBasePos.clone(),
+};
+let camRestPos = camBasePos.clone();
+
+function applyGameCameraPreset(resetIntro = false) {
+  const num = (key) => {
+    const raw = params.get(key);
+    if (raw == null) return null;
+    const v = Number(raw);
+    return Number.isFinite(v) ? v : null;
+  };
+
+  // Fixed-camera framing goal:
+  // - tilted top-down view
+  // - local player is fully visible near the bottom edge
+  // - more visible space "in front" (toward arena center)
+  // - avoids showing the entire arena at once
+  //
+  // Debug/tuning:
+  // - `camFov`, `camHeight`/`camY`, `camBack`/`camZ`, `camLook`/`camLookZ`
+  const fov = num('camFov') ?? 34;
+  const height = num('camHeight') ?? num('camY') ?? 8.6;
+  const back = num('camBack') ?? num('camZ') ?? 10.8;
+  // Negative is "forward" in view space (toward arena center).
+  const lookZ = num('camLook') ?? num('camLookZ') ?? -2.2;
+
+  camera.fov = fov;
+  camLookZ = lookZ;
+  camBasePos.set(0, height, back);
+  camRestPos.copy(camBasePos);
+  camera.updateProjectionMatrix();
+
+  // If the intro animation is active, keep its target synced with the latest preset.
+  camIntro.end.copy(camBasePos);
+  if (resetIntro) {
+    // Keep gameplay camera fixed (no intro movement).
+    camIntro.active = false;
+    camIntro.time = 0;
+  }
+}
+const ui = {
+  sceneReady: false,
+  arenaReady: false,
+  prefabsReady: false,
+  overlayState: '',
+  hintShown: false,
+};
+
+const input = {
+  moveX: 0,
+  moveZ: 0,
+  forward: false,
+  back: false,
+  left: false,
+  right: false,
+  touchActive: false,
+  dragActive: false,
+  source: 'idle',
+};
+
+const keyState = { up: false, down: false, left: false, right: false };
+
+const ballGeom = new THREE.SphereGeometry(ballVisualRadius(), 36, 22);
 const ballMat = new THREE.MeshStandardMaterial({
   color: 0xa7c2e0,
   map: makeBallTexture(),
@@ -869,7 +1733,7 @@ const ballMat = new THREE.MeshStandardMaterial({
 });
 let ballMesh = new THREE.Mesh(ballGeom, ballMat);
 ballMesh.castShadow = true;
-ballMesh.position.y = 0.5;
+ballMesh.position.y = ballVisualRadius();
 scene.add(ballMesh);
 normalScale.copy(ballMesh.scale);
 impactScale.copy(ballMesh.scale).multiply(new THREE.Vector3(1.15, 0.85, 1.15));
@@ -896,7 +1760,7 @@ function makeBlobShadow(radius = 1) {
   return sprite;
 }
 
-const shadowMesh = makeBlobShadow(0.9);
+const shadowMesh = makeBlobShadow(ballVisualRadius());
 scene.add(shadowMesh);
 lastBallPos.set(ballMesh.position.x, ballMesh.position.z);
 
@@ -908,13 +1772,20 @@ function initOverlayDom() {
   finishOverlayEl.sub = finishOverlayEl.root?.querySelector('.finish-sub') || null;
   inviteDom.root = document.getElementById('invite-overlay');
   inviteDom.btn = document.getElementById('invite-btn');
+  landscapeDom.root = document.getElementById('landscape-overlay');
+  landscapeDom.btn = document.getElementById('landscape-btn');
 }
 
 function updateOverlay() {
   if (!overlayDom.root) return;
   const next = (() => {
-    if (!ui.sceneReady) return 'LOADING';
-    if (!net.connected) return 'CONNECTING';
+    if (!ui.arenaReady) return 'LOADING';
+    if (!net.connected) {
+      const errCode = net.error?.code || net.error?.reason;
+      if (net.connectionState === 'error' && (errCode || net.errorMessage)) return 'ERROR';
+      return 'CONNECTING';
+    }
+    if (!ui.prefabsReady) return 'LOADING_PLAYERS';
     const playerCount = net.players.size || 0;
     if (net.matchState === 'WAITING' || playerCount < 4) return 'WAITING';
     return 'HIDE';
@@ -930,12 +1801,24 @@ function updateOverlay() {
   switch (next) {
     case 'LOADING':
       text.textContent = 'Total Fun';
-      sub.textContent = tg ? 'Loading…' : 'Open in Telegram to play';
+      sub.textContent = 'Loading…';
       root.classList.add('visible');
       break;
+    case 'ERROR': {
+      const errCode = net.error?.code || net.error?.reason;
+      text.textContent = 'Connection error';
+      sub.textContent = net.errorMessage || (errCode ? String(errCode) : '');
+      root.classList.add('visible');
+      break;
+    }
     case 'CONNECTING':
       text.textContent = 'Connecting…';
       sub.textContent = net.reconnectAttempts > 0 ? `Retry ${net.reconnectAttempts}` : '';
+      root.classList.add('visible');
+      break;
+    case 'LOADING_PLAYERS':
+      text.textContent = 'Total Fun';
+      sub.textContent = 'Loading characters…';
       root.classList.add('visible');
       break;
     case 'WAITING':
@@ -1013,48 +1896,68 @@ function setBallRadiusFromObject(object) {
   }
 }
 
-const ballState = {
-  velocity: new THREE.Vector2(4, 2.8),
-  radius: ARENA.ballRadius,
-};
-const lastBallPos = new THREE.Vector2();
-const lastBallVel = new THREE.Vector2();
-const tempVec2 = new THREE.Vector2();
-const tempVec3 = new THREE.Vector3();
-const impactScale = new THREE.Vector3(1.15, 0.85, 1.15);
-const normalScale = new THREE.Vector3(1, 1, 1);
-const ballFx = { squashTime: 0, squashDuration: 0.16 };
-const camBasePos = camera.position.clone();
-const camKick = { time: 0, duration: 0.15, strength: 0.1 };
-const camIntro = { active: true, time: 0, duration: 0.82, start: new THREE.Vector3(camBasePos.x, camBasePos.y + 1.8, camBasePos.z + 1.8), end: camBasePos.clone() };
-let camRestPos = camBasePos.clone();
-const ui = {
-  sceneReady: false,
-  overlayState: '',
-  hintShown: false,
-};
+function normalizeBallModel(model) {
+  if (!model) return model;
+  // Wrap the imported GLB so we can recenter/scale without fighting external positioning.
+  const root = new THREE.Object3D();
+  root.name = 'ballRoot';
+  root.add(model);
 
+  // Scale the imported GLB so its XZ radius matches our desired visual radius.
+  const box = new THREE.Box3().setFromObject(model);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const radius = Math.max(size.x, size.z) / 2;
+  const desired = ballVisualRadius();
+  if (!(radius > 0.05) || !(desired > 0.01)) return root;
 
-const input = {
-  moveX: 0,
-  moveZ: 0,
-  forward: false,
-  back: false,
-  left: false,
-  right: false,
-  touchActive: false,
-  dragActive: false,
-  source: 'idle',
-};
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  // Recenter inside the wrapper (keeps the wrapper position as the true "ball position").
+  model.position.sub(center);
 
-const keyState = { up: false, down: false, left: false, right: false };
+  const factor = desired / radius;
+  if (Number.isFinite(factor) && factor > 0) {
+    root.scale.multiplyScalar(factor);
+  }
+  return root;
+}
 
 function applyDirectionalFlags() {
+  // Gameplay is 1D per-player (paddles slide along their wall). Make controls stable:
+  // - Use ONLY horizontal stick axis (prevents diagonal drift slowing movement).
+  // - Remap per-side so local player always controls left/right in screen space.
   const dead = 0.08;
-  input.forward = input.moveZ < -dead;
-  input.back = input.moveZ > dead;
-  input.left = input.moveX < -dead;
-  input.right = input.moveX > dead;
+  const side = net.side || 'bottom';
+  const axis = Math.abs(input.moveX) > dead ? input.moveX : 0;
+
+  input.forward = false;
+  input.back = false;
+  input.left = false;
+  input.right = false;
+
+  if (side === 'bottom') {
+    input.left = axis < -dead;
+    input.right = axis > dead;
+    return;
+  }
+  if (side === 'top') {
+    // Camera is rotated 180deg for the local top player, so swap left/right.
+    input.left = axis > dead;
+    input.right = axis < -dead;
+    return;
+  }
+  if (side === 'left') {
+    // Camera is rotated -90deg: screen left/right maps to world forward/back.
+    input.forward = axis < -dead;
+    input.back = axis > dead;
+    return;
+  }
+  if (side === 'right') {
+    // Camera is rotated +90deg: screen left/right maps to world back/forward.
+    input.forward = axis > dead;
+    input.back = axis < -dead;
+  }
 }
 
 function setMoveVector(x, z, source = 'unknown') {
@@ -1099,7 +2002,13 @@ function bindTouchControls() {
   let pointerId = null;
 
   const resetStick = () => {
-    thumb.style.transform = 'translate(44px, 44px)';
+    // Center based on actual DOM sizes (more robust than hardcoding 44px).
+    const rect = root.getBoundingClientRect();
+    const tr = thumb.getBoundingClientRect();
+    const base = rect.width || 160;
+    const th = tr.width || 72;
+    const center = (base - th) / 2;
+    thumb.style.transform = `translate(${center}px, ${center}px)`;
     input.touchActive = false;
     setMoveVector(0, 0, 'touch');
     recomputeKeyboardVector();
@@ -1113,14 +2022,29 @@ function bindTouchControls() {
     const dx = e.clientX - cx;
     const dy = e.clientY - cy;
     const maxR = rect.width / 2;
-    const dist = Math.min(Math.hypot(dx, dy), maxR);
-    const nx = dist === 0 ? 0 : dx / dist;
-    const ny = dist === 0 ? 0 : dy / dist;
-    const clampR = maxR - 36; // keep thumb inside base
-    thumb.style.transform = `translate(${clampR * nx + clampR + 8}px, ${clampR * ny + clampR + 8}px)`;
+    const dist = Math.hypot(dx, dy);
+    const clampedDist = Math.min(dist, maxR);
 
-    // y axis inverted: up = negative dy
-    setMoveVector(nx, ny, 'touch');
+    const ux = dist < 1e-6 ? 0 : (dx / dist);
+    const uy = dist < 1e-6 ? 0 : (dy / dist);
+
+    // Move thumb proportionally; don't snap to the edge (prevents "auto full speed" feeling).
+    const tr = thumb.getBoundingClientRect();
+    const th = tr.width || 72;
+    const center = (rect.width - th) / 2;
+    const maxTravel = center;
+    const travel = maxR > 1e-6 ? Math.min(maxTravel, (clampedDist / maxR) * maxTravel) : 0;
+    thumb.style.transform = `translate(${center + ux * travel}px, ${center + uy * travel}px)`;
+
+    // Analog stick: -1..1 relative to base radius (y axis: up = negative dy).
+    let mx = maxR > 1e-6 ? (dx / maxR) : 0;
+    let mz = maxR > 1e-6 ? (dy / maxR) : 0;
+    const mlen = Math.hypot(mx, mz);
+    if (mlen > 1) {
+      mx /= mlen;
+      mz /= mlen;
+    }
+    setMoveVector(mx, mz, 'touch');
   };
 
   root.addEventListener('pointerdown', (e) => {
@@ -1140,10 +2064,11 @@ function bindTouchControls() {
   };
   root.addEventListener('pointerup', end);
   root.addEventListener('pointercancel', end);
+  root.addEventListener('lostpointercapture', end);
 }
 
 function bindDragControls() {
-  const canvas = renderer.domElement;
+  const canvas = renderer?.domElement;
   if (!canvas) return;
   let pointerId = null;
   let origin = { x: 0, y: 0 };
@@ -1180,6 +2105,7 @@ function bindDragControls() {
 
   canvas.addEventListener('pointerup', end);
   canvas.addEventListener('pointercancel', end);
+  canvas.addEventListener('lostpointercapture', end);
 }
 
 function bindNetControls() {
@@ -1188,11 +2114,11 @@ function bindNetControls() {
   window.addEventListener('touchstart', unlock, { once: true });
   const ctaRetry = document.getElementById('cta-retry');
   if (ctaRetry) {
-    ctaRetry.addEventListener('click', () => {
+    ctaRetry.addEventListener('click', async () => {
       net.manualRetry = true;
       stopNet();
       net.shouldReconnect = true;
-      startNet(net.wsUrl);
+      await startNet(net.wsUrl);
       net.manualRetry = false;
       ctaRetry.style.display = 'none';
     });
@@ -1205,10 +2131,11 @@ function bindGameUiControls() {
 
 function applyNetPanelVisibility() {
   const netPanel = document.getElementById('net-panel');
-  if (!netPanel) return;
+  const hud = document.getElementById('hud');
   const debugFlag = params.get('debug');
   const visible = debugFlag === '1' || debugFlag === 'true';
-  netPanel.classList.toggle('net-panel--visible', visible);
+  if (netPanel) netPanel.classList.toggle('net-panel--visible', visible);
+  if (hud) hud.classList.toggle('hud--visible', visible);
 }
 
 function getCountdownEl() {
@@ -1257,6 +2184,14 @@ function applyConfigFromServer(cfg = {}) {
     PHYSICS.maxSpeed = phys.ball.maxSpeed ?? PHYSICS.maxSpeed;
     PHYSICS.damping = phys.ball.damping ?? PHYSICS.damping;
   }
+  if (cfg.field) {
+    const w = Number(cfg.field.width);
+    const h = Number(cfg.field.height);
+    if (Number.isFinite(w) && w > 0.5) FIELD.width = w;
+    if (Number.isFinite(h) && h > 0.5) FIELD.height = h;
+  } else if (cfg.arena || phys?.player) {
+    recomputeBallField();
+  }
   if (cfg.roomTimeoutMs != null) {
     window.SERVER_CONFIG = window.SERVER_CONFIG || {};
     window.SERVER_CONFIG.roomTimeoutMs = cfg.roomTimeoutMs;
@@ -1265,18 +2200,40 @@ function applyConfigFromServer(cfg = {}) {
 
 function applyDebugUi() {}
 
+function offlineKickoffCorners() {
+  const spawnX = ARENA.width / 2 - ARENA.ballRadius - OFFLINE_KICKOFF_CORNER_MARGIN;
+  const spawnZ = ARENA.height / 2 - ARENA.ballRadius - OFFLINE_KICKOFF_CORNER_MARGIN;
+  return [
+    { x: -spawnX, z: -spawnZ },
+    { x: spawnX, z: -spawnZ },
+    { x: spawnX, z: spawnZ },
+    { x: -spawnX, z: spawnZ },
+  ];
+}
+
 function resetBall() {
   if (net.connected) return;
-  const spawn = SPAWN_PADS[nextSpawnPad % SPAWN_PADS.length] || { x: 0, z: 0 };
-  nextSpawnPad = (nextSpawnPad + 1) % Math.max(1, SPAWN_PADS.length);
-  ballMesh.position.set(spawn.x, ballState.radius, spawn.z);
-  shadowMesh.position.x = spawn.x;
-  shadowMesh.position.z = spawn.z;
-  const toCenter = new THREE.Vector2(-spawn.x, -spawn.z).normalize();
-  const spread = (Math.random() - 0.5) * 0.45;
-  const angle = Math.atan2(toCenter.y, toCenter.x) + spread;
-  const speed = 6.2;
-  ballState.velocity.set(Math.cos(angle) * speed, Math.sin(angle) * speed);
+  const spawnIdx = nextSpawnPad;
+  nextSpawnPad += 1;
+  const spawnPos = new THREE.Vector3();
+  const spawnNode = arenaSpawnNodes.length ? arenaSpawnNodes[spawnIdx % arenaSpawnNodes.length] : null;
+  if (spawnNode) {
+    spawnNode.updateMatrixWorld(true);
+    spawnNode.getWorldPosition(spawnPos);
+  } else if (SPAWN_PADS.length) {
+    const pad = SPAWN_PADS[spawnIdx % SPAWN_PADS.length];
+    spawnPos.set(pad.x, 0, pad.z);
+  } else {
+    const pad = offlineKickoffCorners()[spawnIdx % 4];
+    spawnPos.set(pad.x, 0, pad.z);
+  }
+  ballMesh.position.copy(spawnPos);
+  ballMesh.position.y = floorY() + ballVisualRadius();
+  shadowMesh.position.x = spawnPos.x;
+  shadowMesh.position.z = spawnPos.z;
+  shadowMesh.position.y = floorY() + 0.02;
+  // Stationary until a player hit provides an impulse.
+  ballState.velocity.set(0, 0);
 }
 
 resetBall();
@@ -1316,11 +2273,17 @@ function handleNetMessage(raw) {
     if (msg.type === 'WELCOME') {
       net.connectionState = 'connected';
       net.connected = true;
+      net.everConnected = true;
+      net.authRetryStartedAt = 0;
       net.error = null;
       net.reconnectAttempts = 0;
       net.id = msg.payload?.playerId;
       net.side = msg.payload?.side;
       net.matchState = msg.payload?.matchState || net.matchState;
+      if (!net.wsCandidateLocked) {
+        // Persist the last known working WS URL so Telegram menu launches don't need query params.
+        safeLocalStorageSet('tf_ws_url', net.wsUrl);
+      }
       if (msg.payload?.tickRate) net.tickRate = msg.payload.tickRate;
       if (msg.payload?.snapshotRate) {
         net.snapshotRate = msg.payload.snapshotRate;
@@ -1333,7 +2296,9 @@ function handleNetMessage(raw) {
         ARENA.ballRadius = msg.payload.arena.ballRadius ?? ballState.radius;
         ballState.radius = ARENA.ballRadius;
       }
-      if (msg.payload?.physics || msg.payload?.config) applyConfigFromServer({ physics: msg.payload.physics, arena: msg.payload.arena });
+      if (msg.payload?.physics || msg.payload?.config || msg.payload?.field) {
+        applyConfigFromServer({ physics: msg.payload.physics, arena: msg.payload.arena, field: msg.payload.field });
+      }
       return;
     }
     if (msg.type === 'ROOM_STATE') {
@@ -1352,6 +2317,8 @@ function handleNetMessage(raw) {
         clearPlayers();
         net.hasSnapshot = true;
       }
+      net.lastSnapshotAt = performance.now();
+      net.stallTriggeredAt = 0;
       net.snapshotBuffer.prev = net.snapshotBuffer.curr;
       net.snapshotBuffer.curr = { t: msg.t, payload: msg.payload, recvAt: performance.now(), sentAt: msg.ts || performance.now() };
       net.snapshot = msg;
@@ -1361,13 +2328,35 @@ function handleNetMessage(raw) {
       net.error = msg.payload;
       net.connectionState = 'error';
       console.warn('[net] error', msg.payload);
-      if (msg.payload?.code === 'BAD_AUTH') {
-        net.shouldReconnect = false;
-        net.errorMessage = 'Authentication failed. Please relaunch from Telegram.';
+      const code = msg.payload?.code;
+      const message = msg.payload?.message ? String(msg.payload.message) : '';
+
+      if (code === 'BAD_AUTH') {
+        const reason = message ? ` (${message})` : '';
+        const missingInitData = message === 'MISSING_INITDATA' || message === 'NO_HASH' || message === 'PARSE_ERROR';
+
+        // On some mobile devices `telegram-web-app.js` / initData can be late. Retry briefly instead of failing hard.
+        if (missingInitData && isProbablyTelegramUserAgent()) {
+          if (!net.authRetryStartedAt) net.authRetryStartedAt = Date.now();
+          if (Date.now() - net.authRetryStartedAt < 15000) {
+            net.shouldReconnect = true;
+            net.errorMessage = `Waiting for Telegram initData…${reason}`;
+          } else {
+            net.shouldReconnect = false;
+            net.errorMessage = `Authentication failed${reason}. Open the game via the bot Menu Button Web App inside Telegram.`;
+          }
+        } else {
+          net.authRetryStartedAt = 0;
+          net.shouldReconnect = false;
+          if (isProbablyTelegramUserAgent() && !hasTelegramInitData()) {
+            net.errorMessage = `Authentication failed${reason}. Open the game via the bot Menu Button Web App inside Telegram (not a regular link).`;
+          } else {
+            net.errorMessage = `Authentication failed${reason}. Please relaunch from Telegram.`;
+          }
+        }
       }
-      if (['BAD_AUTH', 'BAD_HELLO', 'ROOM_FULL'].includes(msg.payload?.code)) {
-        net.shouldReconnect = false;
-      }
+
+      if (['BAD_HELLO', 'ROOM_FULL'].includes(code)) net.shouldReconnect = false;
       return;
     }
     if (msg.type === 'MATCH_EVENT') {
@@ -1385,7 +2374,8 @@ function handleNetMessage(raw) {
 }
 
 function connectWebSocket(url) {
-  if (!url || !net.shouldReconnect) return;
+  const normalized = normalizeWsUrl(url);
+  if (!normalized || !net.shouldReconnect) return;
   if (net.ws) {
     net.ws.close();
     net.ws = null;
@@ -1394,47 +2384,150 @@ function connectWebSocket(url) {
     clearTimeout(net.reconnectTimer);
     net.reconnectTimer = null;
   }
-  net.ws = new WebSocket(url);
+  net.ws = new WebSocket(normalized);
   net.connectionState = 'connecting';
   net.ws.addEventListener('open', () => {
     net.connectionState = 'handshake';
     net.reconnectAttempts = 0;
     net.error = null;
-    const hello = {
-      type: 'HELLO',
-      payload: {
-        userId: net.identity?.userId,
-        username: net.identity?.username,
-        initData: window?.Telegram?.WebApp?.initData || null,
-      },
+    let helloSent = false;
+    const sendHello = () => {
+      if (helloSent) return;
+      if (!net.ws || net.ws.readyState !== WebSocket.OPEN) return;
+      helloSent = true;
+      const hello = {
+        type: 'HELLO',
+        payload: {
+          userId: net.identity?.userId,
+          username: net.identity?.username,
+          initData: getTelegramInitData() || null,
+        },
+      };
+      net.ws.send(JSON.stringify(hello));
     };
-    net.ws.send(JSON.stringify(hello));
+
+    // In Telegram Mini Apps the `telegram-web-app.js` can still be late on some devices.
+    // If we send HELLO before `initData` exists, server auth can reject with BAD_AUTH.
+    if (isProbablyTelegramUserAgent() && !hasTelegramInitData()) {
+      const start = performance.now();
+      const poll = () => {
+        if (hasTelegramInitData()) {
+          sendHello();
+          return;
+        }
+        if (!net.ws || net.ws.readyState !== WebSocket.OPEN) return;
+        if (performance.now() - start > 8000) {
+          // Fail open: send without initData (dev servers may allow it).
+          sendHello();
+          return;
+        }
+        setTimeout(poll, 50);
+      };
+      poll();
+    } else {
+      sendHello();
+    }
   });
   net.ws.addEventListener('message', (evt) => handleNetMessage(evt));
   net.ws.addEventListener('close', (evt) => {
+    const canFallback = !net.everConnected && !net.wsCandidateLocked && Array.isArray(net.wsCandidates) && net.wsCandidateIndex < net.wsCandidates.length - 1;
     net.connected = false;
     net.connectionState = 'disconnected';
     net.side = null;
     net.snapshot = null;
     net.hasSnapshot = false;
-    net.errorMessage = evt?.code ? `Connection closed (${evt.code})` : '';
-    if (net.shouldReconnect && !net.manualRetry) scheduleReconnect();
+    const closeCode = Number(evt?.code || 0);
+    const closeReason = String(evt?.reason || '');
+    const knownClose = {
+      4400: { code: 'BAD_HELLO', reconnect: false },
+      4401: { code: 'BAD_AUTH', reconnect: false },
+      4402: { code: 'BAD_ORDER', reconnect: false },
+      4403: { code: 'ROOM_FULL', reconnect: false },
+      4408: { code: 'RATE_CONN', reconnect: true },
+      4409: { code: 'ALREADY_CONNECTED', reconnect: false },
+    };
+    if (knownClose[closeCode]) {
+      const info = knownClose[closeCode];
+      net.error = { code: info.code, message: closeReason || info.code };
+      net.errorMessage = closeReason ? `${info.code}: ${closeReason}` : info.code;
+      if (!info.reconnect) net.shouldReconnect = false;
+    } else {
+      net.errorMessage = closeCode ? `Connection closed (${closeCode})` : '';
+    }
+    if (net.shouldReconnect && !net.manualRetry) {
+      if (canFallback) {
+        net.wsCandidateIndex += 1;
+        net.wsUrl = net.wsCandidates[net.wsCandidateIndex];
+        net.reconnectAttempts = 0;
+        // Try the next candidate immediately.
+        setTimeout(() => connectWebSocket(net.wsUrl), 0);
+        return;
+      }
+      scheduleReconnect();
+    }
   });
   net.ws.addEventListener('error', (e) => {
     console.warn('[net] error', e);
+    const canFallback = !net.everConnected && !net.wsCandidateLocked && Array.isArray(net.wsCandidates) && net.wsCandidateIndex < net.wsCandidates.length - 1;
     net.connected = false;
     net.connectionState = 'error';
     net.snapshot = null;
     net.hasSnapshot = false;
     net.errorMessage = e?.message || 'Network error';
-    if (net.shouldReconnect && !net.manualRetry) scheduleReconnect();
+    if (net.shouldReconnect && !net.manualRetry) {
+      if (canFallback) {
+        net.wsCandidateIndex += 1;
+        net.wsUrl = net.wsCandidates[net.wsCandidateIndex];
+        net.reconnectAttempts = 0;
+        setTimeout(() => connectWebSocket(net.wsUrl), 0);
+        return;
+      }
+      scheduleReconnect();
+    }
   });
 }
 
-if (net.enabled) {
+function waitMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForTelegramBeforeNetworking() {
+  const shouldWait = isProbablyTelegramUserAgent() || !!window?.Telegram?.WebApp;
+  if (!shouldWait) return;
+
+  ensureTelegramWebAppScript();
+  if (hasTelegramInitData()) {
+    // Init data is already present (e.g. parsed from launch URL hash); don't delay connection.
+    return;
+  }
+
+  // Wait for `telegram-web-app.js` to initialize `window.Telegram.WebApp` (can be late on mobile).
+  const start = performance.now();
+  while (!window?.Telegram?.WebApp && performance.now() - start < 5000) {
+    await waitMs(50);
+  }
+
+  // Signal readiness to Telegram (hides the native loading state/spinner).
+  tryInitTelegramWebApp();
+  try {
+    window.Telegram?.WebApp?.ready?.();
+  } catch {}
+
+  // If initData is still empty, give Telegram a brief moment to populate it before opening WS.
+  if (!hasTelegramInitData()) {
+    await waitMs(300);
+  }
+}
+
+async function bootNet() {
+  if (!net.enabled) return;
+  if (!net.wsUrl) return;
+  await waitForTelegramBeforeNetworking();
   net.shouldReconnect = true;
   connectWebSocket(net.wsUrl);
 }
+
+bootNet().catch((err) => console.warn('[net] bootstrap failed', err));
 
 function stopNet() {
   net.shouldReconnect = false;
@@ -1457,7 +2550,7 @@ function stopNet() {
   clearPlayers();
 }
 
-function startNet(url) {
+async function startNet(url) {
   if (url) net.wsUrl = url;
   net.shouldReconnect = true;
   net.enabled = true;
@@ -1467,10 +2560,17 @@ function startNet(url) {
   net.players.clear();
   net.matchState = 'CONNECTING';
   clearPlayers();
+  await waitForTelegramBeforeNetworking();
   connectWebSocket(net.wsUrl);
 }
 
 async function hydrateWithGltf() {
+  // Keep the full-screen overlay visible until the arena and character prefabs are ready.
+  // This avoids spawning temporary placeholder meshes that later "pop" into the real models.
+  ui.sceneReady = false;
+  ui.arenaReady = false;
+  ui.prefabsReady = false;
+
   const arenaPromise = loadOptionalGltf(ASSETS.arena);
   const ballPromise = loadOptionalGltf(ASSETS.ball);
   const boatPromise = loadOptionalGltf(ASSETS.boat);
@@ -1506,13 +2606,36 @@ async function hydrateWithGltf() {
     }
     deco.updateMatrixWorld(true);
     const scaledBox = new THREE.Box3().setFromObject(deco);
-    deco.position.y = -scaledBox.min.y + 0.02;
+    // Keep the arena above y=0. We'll raycast the real play-floor height and place players/ball there.
+    deco.position.y = -scaledBox.min.y;
+    // Important: update matrices after moving the arena so floor raycasts use the correct transform.
+    deco.updateMatrixWorld(true);
     if (arenaGroup) {
       scene.remove(arenaGroup);
     }
     scene.add(deco);
     arenaGroup = deco;
+    collectArenaSpawns(arenaGroup);
+
+    arenaFloorY = computeArenaFloorY(arenaGroup) + 0.01; // small lift to avoid clipping
+    // If players already exist (e.g. reconnect), snap their Y to the play floor.
+    players.forEach((p) => {
+      p.mesh.position.y = arenaFloorY;
+      ensurePlayerMotionState(p);
+      p.prevPos.copy(p.mesh.position);
+    });
+    ballMesh.position.y = arenaFloorY + ballVisualRadius();
+    shadowMesh.position.y = arenaFloorY + 0.02;
+
+    rebuildRinkDecor();
+
+    applyGameCameraPreset(true);
+    if (renderer?.domElement) {
+      renderer.domElement.style.visibility = 'visible';
+    }
   }
+  // Even if the GLB fails to load, consider the arena stage done to avoid blocking the UX forever.
+  ui.arenaReady = true;
 
   const fallbackGltf = await fallbackPromise;
   playerPrefabs.clear();
@@ -1531,6 +2654,7 @@ async function hydrateWithGltf() {
     enableShadows(prefab);
     playerPrefabs.set(side, prefab);
   });
+  ui.prefabsReady = true;
 
   if (playerPrefabs.size || playerFallbackPrefab) {
     applyPrefabsToExistingPlayers();
@@ -1540,15 +2664,18 @@ async function hydrateWithGltf() {
   if (ballGltf) {
     const model = ballGltf.scene;
     enableShadows(model);
-    model.position.copy(ballMesh.position);
+    // Visual-only: make the imported ball match our desired on-screen size.
+    const ballRoot = normalizeBallModel(model);
+    ballRoot.position.copy(ballMesh.position);
     scene.remove(ballMesh);
-    ballMesh = model;
+    ballMesh = ballRoot;
     scene.add(ballMesh);
-    setBallRadiusFromObject(model);
     normalScale.copy(ballMesh.scale);
     impactScale.copy(ballMesh.scale).multiply(new THREE.Vector3(1.15, 0.85, 1.15));
   }
   await sfxPromise;
+
+  ui.sceneReady = ui.arenaReady && ui.prefabsReady;
 }
 
 hydrateWithGltf();
@@ -1559,10 +2686,107 @@ function colorIndexBySide(side) {
 }
 
 function clampPlayerToZone(pos, side) {
-  const zone = SIDE_ZONES[side];
-  if (!zone) return;
-  pos.x = THREE.MathUtils.clamp(pos.x, zone.x[0], zone.x[1]);
-  pos.z = THREE.MathUtils.clamp(pos.z, zone.z[0], zone.z[1]);
+  const halfW = ARENA.width / 2;
+  const halfH = ARENA.height / 2;
+  const halfWidth = (PLAYER.collider?.x ?? 2.5) * 0.5;
+  const laneInset = (PLAYER.collider?.z ?? ARENA.playerDepth ?? 0.6) * 0.5 + PLAYER_WALL_MARGIN;
+
+  if (side === 'top' || side === 'bottom') {
+    pos.x = THREE.MathUtils.clamp(pos.x, -halfW + halfWidth, halfW - halfWidth);
+    pos.z = side === 'top' ? (-halfH + laneInset) : (halfH - laneInset);
+    return;
+  }
+  if (side === 'left' || side === 'right') {
+    pos.z = THREE.MathUtils.clamp(pos.z, -halfH + halfWidth, halfH - halfWidth);
+    pos.x = side === 'left' ? (-halfW + laneInset) : (halfW - laneInset);
+  }
+}
+
+function playerHalfExtentsForSide(side) {
+  const w = PLAYER.collider?.x ?? 2.5; // along movement axis
+  const d = PLAYER.collider?.z ?? ARENA.playerDepth ?? 0.6; // toward/away from wall
+  if (side === 'left' || side === 'right') {
+    // Left/right paddles move along Z, so width is on Z axis; depth is on X axis.
+    return { hx: d * 0.5, hz: w * 0.5 };
+  }
+  // Top/bottom paddles move along X, so width is on X axis; depth is on Z axis.
+  return { hx: w * 0.5, hz: d * 0.5 };
+}
+
+function clampPlayerAgainstPosts(pos, side) {
+  const posts = getBallSpawnPoints();
+  if (!posts.length) return;
+  const postR = ARENA_OBSTACLES.postRadius;
+  if (!(postR > 0.001)) return;
+
+  const halfW = ARENA.width / 2;
+  const halfH = ARENA.height / 2;
+  const ext = playerHalfExtentsForSide(side);
+
+  // Iterate a couple times in case we're wedged between two posts.
+  for (let iter = 0; iter < 2; iter += 1) {
+    if (side === 'top' || side === 'bottom') {
+      const minX = -halfW + ext.hx;
+      const maxX = halfW - ext.hx;
+      const rectMinZ = pos.z - ext.hz;
+      const rectMaxZ = pos.z + ext.hz;
+
+      for (const post of posts) {
+        const cx = Number(post?.x);
+        const cz = Number(post?.z);
+        if (!Number.isFinite(cx) || !Number.isFinite(cz)) continue;
+
+        let dz = 0;
+        if (cz < rectMinZ) dz = rectMinZ - cz;
+        else if (cz > rectMaxZ) dz = cz - rectMaxZ;
+        if (dz >= postR) continue;
+
+        const dxMax = Math.sqrt(Math.max(0, postR * postR - dz * dz));
+        const forbiddenHalf = ext.hx + dxMax;
+        if (!(Math.abs(pos.x - cx) < forbiddenHalf)) continue;
+
+        const leftCandidate = cx - forbiddenHalf - 0.02;
+        const rightCandidate = cx + forbiddenHalf + 0.02;
+        const preferLeft = pos.x < cx;
+        let candidate = preferLeft ? leftCandidate : rightCandidate;
+        if (candidate < minX || candidate > maxX) {
+          candidate = preferLeft ? rightCandidate : leftCandidate;
+        }
+        pos.x = THREE.MathUtils.clamp(candidate, minX, maxX);
+      }
+    } else if (side === 'left' || side === 'right') {
+      const minZ = -halfH + ext.hz;
+      const maxZ = halfH - ext.hz;
+      const rectMinX = pos.x - ext.hx;
+      const rectMaxX = pos.x + ext.hx;
+
+      for (const post of posts) {
+        const cx = Number(post?.x);
+        const cz = Number(post?.z);
+        if (!Number.isFinite(cx) || !Number.isFinite(cz)) continue;
+
+        let dx = 0;
+        if (cx < rectMinX) dx = rectMinX - cx;
+        else if (cx > rectMaxX) dx = cx - rectMaxX;
+        if (dx >= postR) continue;
+
+        const dzMax = Math.sqrt(Math.max(0, postR * postR - dx * dx));
+        const forbiddenHalf = ext.hz + dzMax;
+        if (!(Math.abs(pos.z - cz) < forbiddenHalf)) continue;
+
+        const lowCandidate = cz - forbiddenHalf - 0.02;
+        const highCandidate = cz + forbiddenHalf + 0.02;
+        const preferLow = pos.z < cz;
+        let candidate = preferLow ? lowCandidate : highCandidate;
+        if (candidate < minZ || candidate > maxZ) {
+          candidate = preferLow ? highCandidate : lowCandidate;
+        }
+        pos.z = THREE.MathUtils.clamp(candidate, minZ, maxZ);
+      }
+    }
+
+    clampPlayerToZone(pos, side);
+  }
 }
 
 function normalizePrefab(prefab) {
@@ -1573,9 +2797,13 @@ function normalizePrefab(prefab) {
   if (size.x === 0 || size.z === 0) return;
   const factor = Math.min(TARGET_PLAYER_SIZE.x / size.x, TARGET_PLAYER_SIZE.z / size.z);
   prefab.scale.multiplyScalar(factor);
+  box.setFromObject(prefab);
   const center = new THREE.Vector3();
   box.getCenter(center);
-  prefab.position.sub(center); // pivot to (0,0,0)
+  // Center XZ around origin, but keep Y pivot at the ground so models don't end up half under the arena floor.
+  prefab.position.x -= center.x;
+  prefab.position.z -= center.z;
+  prefab.position.y -= box.min.y;
 }
 
 function normalizeBoat(prefab) {
@@ -1596,9 +2824,8 @@ function normalizeBoat(prefab) {
 
 function clampPlayerToSideLine(pos, side) {
   clampPlayerToZone(pos, side);
-  const anchor = SIDE_ANCHOR[side]?.();
-  if (anchor?.x != null) pos.x = anchor.x;
-  if (anchor?.z != null) pos.z = anchor.z;
+  // Visual safety clamp: prevent snapshot interpolation from showing players inside corner posts/tubes.
+  clampPlayerAgainstPosts(pos, side);
 }
 
 function enforcePlayerBounds() {
@@ -1607,18 +2834,90 @@ function enforcePlayerBounds() {
   });
 }
 
+function clampBallAgainstPosts(pos, derivedVel = null) {
+  const posts = getBallSpawnPoints();
+  if (!posts.length) return;
+  const postR = ARENA_OBSTACLES.postRadius;
+  if (!(postR > 0.001)) return;
+
+  const r = ballState.radius;
+  const minDist = r + postR;
+  const minDistSq = minDist * minDist;
+
+  for (let iter = 0; iter < 2; iter += 1) {
+    let any = false;
+    for (const post of posts) {
+      const cx = Number(post?.x);
+      const cz = Number(post?.z);
+      if (!Number.isFinite(cx) || !Number.isFinite(cz)) continue;
+
+      const dx = pos.x - cx;
+      const dz = pos.z - cz;
+      const distSq = dx * dx + dz * dz;
+      if (!(distSq < minDistSq)) continue;
+      any = true;
+
+      let nx = dx;
+      let nz = dz;
+      let dist = Math.sqrt(distSq);
+      if (dist < 1e-6) {
+        // Degenerate: use derived velocity direction as a hint, otherwise push toward arena center.
+        const vx = derivedVel?.x ?? 0;
+        const vz = derivedVel?.y ?? 0;
+        const vlen = Math.hypot(vx, vz);
+        if (vlen > 1e-6) {
+          nx = -vx / vlen;
+          nz = -vz / vlen;
+        } else {
+          const clen = Math.hypot(cx, cz) || 1;
+          nx = -cx / clen;
+          nz = -cz / clen;
+        }
+        dist = 1;
+      } else {
+        nx /= dist;
+        nz /= dist;
+      }
+
+      // Push outside the obstacle.
+      pos.x = cx + nx * minDist;
+      pos.z = cz + nz * minDist;
+
+      // Reflect derived velocity for impact FX so bounces don't look like tunneling.
+      if (derivedVel) {
+        const dot = derivedVel.x * nx + derivedVel.y * nz;
+        if (dot < 0) {
+          derivedVel.x = derivedVel.x - 2 * dot * nx;
+          derivedVel.y = derivedVel.y - 2 * dot * nz;
+          derivedVel.multiplyScalar(PHYSICS.damping);
+        }
+      }
+    }
+    if (!any) break;
+  }
+}
+
 function syncNetPlayers(snapshotPlayers) {
+  // Do not spawn temporary placeholder meshes before GLB prefabs are loaded.
+  // This prevents the visible "swap" from capsules to real characters a moment later.
+  if (net.connected && !ui.prefabsReady) return;
   const alive = new Set();
   snapshotPlayers.forEach((sp) => {
-    const pid = sp.playerId || sp.id;
-    const pos = sp.pos || { x: sp.x, z: sp.z };
-    clampPlayerToZone(pos, sp.side);
-    let player = players.find((p) => p.id === pid);
-    if (!player) {
-      const mesh = createPlayer(colorIndexBySide(sp.side), sp.side);
-      mesh.position.set(pos.x, 0.5, pos.z);
+      const pid = sp.playerId || sp.id;
+      const pos = sp.pos || { x: sp.x, z: sp.z };
+      clampPlayerToZone(pos, sp.side);
+      let player = players.find((p) => p.id === pid);
+      if (!player) {
+        const mesh = createPlayer(colorIndexBySide(sp.side), sp.side);
+        mesh.position.set(pos.x, floorY(), pos.z);
+        if (Number.isFinite(sp.yaw)) {
+          mesh.rotation.y = sp.yaw;
+        } else {
+          applyPlayerFacing(mesh, sp.side, null);
+        }
       scene.add(mesh);
-      player = { mesh, side: sp.side, id: pid, isLocal: false };
+      player = { mesh, side: sp.side, id: pid, isLocal: false, targetYaw: Number.isFinite(sp.yaw) ? sp.yaw : null };
+      ensurePlayerMotionState(player);
       attachLabel(player, pid);
       const portraitPath = playerPortraits[sp.side];
       if (portraitPath) {
@@ -1627,14 +2926,20 @@ function syncNetPlayers(snapshotPlayers) {
       }
       players.push(player);
     }
+    ensurePlayerMotionState(player);
     player.isLocal = pid === net.id;
     player.side = sp.side;
-    player.mesh.rotation.y = sideYaw[player.side] ?? 0;
+    player.targetYaw = Number.isFinite(sp.yaw) ? sp.yaw : null;
     const displayName = net.players.get(pid)?.username || pid;
     attachLabel(player, player.isLocal ? `You (${player.side})` : displayName);
-    const aligned = new THREE.Vector3(pos.x, 0.5, pos.z);
+    const aligned = new THREE.Vector3(pos.x, floorY(), pos.z);
     clampPlayerToSideLine(aligned, player.side);
-    player.mesh.position.lerp(aligned, 0.35);
+    // Local player: do not add extra interpolation delay (feels "sluggish").
+    // Remote players: keep a bit of smoothing to hide network jitter.
+    if (player.isLocal) player.mesh.position.copy(aligned);
+    else player.mesh.position.lerp(aligned, 0.35);
+    // Visual safeguard: interpolation can temporarily drift outside bounds before the next snapshot.
+    clampPlayerToSideLine(player.mesh.position, player.side);
     alive.add(pid);
   });
   const toRemove = players.filter((p) => p.id && !alive.has(p.id));
@@ -1653,7 +2958,8 @@ function applyNetState() {
   const interval = net.snapshotIntervalMs || 33;
   const sentDelta = prev ? Math.max(8, (curr.sentAt || 0) - (prev.sentAt || 0)) : interval;
   const elapsed = now - (curr.recvAt || now);
-  const alpha = prev ? THREE.MathUtils.clamp(elapsed / sentDelta, 0, 1.3) : 1;
+  // Never extrapolate past the latest authoritative snapshot.
+  const alpha = prev ? THREE.MathUtils.clamp(elapsed / sentDelta, 0, 1.0) : 1;
 
   if (curr.payload?.config) {
     applyConfigFromServer(curr.payload.config);
@@ -1666,6 +2972,12 @@ function applyNetState() {
     const bz = b?.pos?.z ?? b?.z ?? az;
     return { x: THREE.MathUtils.lerp(ax, bx, alpha), z: THREE.MathUtils.lerp(az, bz, alpha) };
   };
+  const lerpAngle = (a, b) => {
+    const aa = Number.isFinite(a) ? a : 0;
+    const bb = Number.isFinite(b) ? b : aa;
+    const delta = normalizeAngleRad(bb - aa);
+    return normalizeAngleRad(aa + delta * alpha);
+  };
 
   const interpPlayers = [];
   const currPlayers = curr.payload?.players || [];
@@ -1677,6 +2989,7 @@ function applyNetState() {
       playerId: pid,
       side: cp.side,
       pos: lerpVec(prevP.pos || prevP, cp.pos || cp),
+      yaw: typeof cp.yaw === 'number' ? lerpAngle(prevP.yaw, cp.yaw) : null,
     });
   });
   syncNetPlayers(interpPlayers);
@@ -1687,11 +3000,39 @@ function applyNetState() {
     if (typeof cBall.r === 'number' && cBall.r > 0.01) {
       ballState.radius = cBall.r;
     }
-    const pos = lerpVec(pBall, cBall);
     // derive velocity from position delta for impact feedback
+    const pos = lerpVec(pBall, cBall);
     const velX = pos.x - lastBallPos.x;
     const velZ = pos.z - lastBallPos.z;
     tempVec2.set(velX, velZ);
+    // Visual safety clamp: keep ball inside arena even under jitter/precision issues.
+    // Reflect derived velocity (for impact feedback) when clamping.
+    const halfW = (FIELD.width > 0 ? FIELD.width : ARENA.width) / 2;
+    const halfH = (FIELD.height > 0 ? FIELD.height : ARENA.height) / 2;
+    const r = ballState.radius;
+    const minX = -halfW + r;
+    const maxX = halfW - r;
+    const minZ = -halfH + r;
+    const maxZ = halfH - r;
+    if (pos.x > maxX) {
+      pos.x = maxX;
+      if (tempVec2.x > 0) tempVec2.x *= -1;
+    } else if (pos.x < minX) {
+      pos.x = minX;
+      if (tempVec2.x < 0) tempVec2.x *= -1;
+    }
+    if (pos.z > maxZ) {
+      pos.z = maxZ;
+      if (tempVec2.y > 0) tempVec2.y *= -1;
+    } else if (pos.z < minZ) {
+      pos.z = minZ;
+      if (tempVec2.y < 0) tempVec2.y *= -1;
+    }
+
+    // Same idea as the wall clamp, but for corner posts/tubes.
+    // Keeps the ball from visually passing through them during snapshot interpolation.
+    clampBallAgainstPosts(pos, tempVec2);
+
     const currSpeed = tempVec2.length();
     const prevSpeed = lastBallVel.length();
     if (currSpeed > 0.02 && prevSpeed > 0.02) {
@@ -1702,25 +3043,31 @@ function applyNetState() {
     }
     lastBallVel.copy(tempVec2);
     lastBallPos.set(pos.x, pos.z);
+    const vr = ballVisualRadius();
     ballMesh.position.x = pos.x;
     ballMesh.position.z = pos.z;
-    ballMesh.position.y = ballState.radius;
+    ballMesh.position.y = floorY() + vr;
     shadowMesh.position.x = pos.x;
     shadowMesh.position.z = pos.z;
-    shadowMesh.scale.set(ballState.radius * 2, ballState.radius * 2, 1);
+    shadowMesh.position.y = floorY() + 0.02;
+    shadowMesh.scale.set(vr * 2, vr * 2, 1);
   }
 
   if (net.matchState && net.matchState !== 'IN_PROGRESS' && net.matchState !== 'READY') {
     players.forEach((p) => {
       const base = playerDefaultPosition(p.side);
-      const aligned = new THREE.Vector3(base.x, 0.5, base.z);
+      const aligned = new THREE.Vector3(base.x, floorY(), base.z);
       clampPlayerToSideLine(aligned, p.side);
-      p.mesh.position.lerp(aligned, 0.35);
+      if (p.isLocal) p.mesh.position.copy(aligned);
+      else p.mesh.position.lerp(aligned, 0.35);
+      clampPlayerToSideLine(p.mesh.position, p.side);
     });
-    ballMesh.position.lerp(new THREE.Vector3(0, ballState.radius, 0), 0.3);
+    ballMesh.position.lerp(new THREE.Vector3(0, floorY() + ballVisualRadius(), 0), 0.3);
     shadowMesh.position.x = ballMesh.position.x;
     shadowMesh.position.z = ballMesh.position.z;
-    shadowMesh.scale.set(ballState.radius * 2, ballState.radius * 2, 1);
+    shadowMesh.position.y = floorY() + 0.02;
+    const vr = ballVisualRadius();
+    shadowMesh.scale.set(vr * 2, vr * 2, 1);
   }
   enforcePlayerBounds();
 
@@ -1728,9 +3075,10 @@ function applyNetState() {
 
 function sendNetInput() {
   if (!net.enabled || !net.connected || !net.ws || net.ws.readyState !== WebSocket.OPEN) return;
-  if (net.matchState && net.matchState !== 'IN_PROGRESS' && net.matchState !== 'READY') return;
+  // TЗ: управление доступно только в активной фазе матча.
+  if (net.matchState && net.matchState !== 'IN_PROGRESS') return;
   const now = performance.now();
-  if (now - net.lastInputSentAt < 50) return; // ~20 Hz cap client-side
+  if (now - net.lastInputSentAt < 33) return; // ~30 Hz cap client-side (feel more instant)
   const payload = { type: 'INPUT', payload: { forward: input.forward, back: input.back, left: input.left, right: input.right } };
   const serialized = JSON.stringify(payload);
   if (serialized !== net.lastInput) {
@@ -1928,9 +3276,63 @@ function updatePlayersList() {
   });
 }
 
+function updatePlayerVelocities(dt) {
+  if (dt <= 0) return;
+  const invDt = 1 / dt;
+  players.forEach((p) => {
+    ensurePlayerMotionState(p);
+    const pos = p.mesh.position;
+    p.velocity.set(
+      (pos.x - p.prevPos.x) * invDt,
+      0,
+      (pos.z - p.prevPos.z) * invDt
+    );
+    p.prevPos.copy(pos);
+  });
+}
+
+function normalizeAngleRad(angle) {
+  let a = angle % (Math.PI * 2);
+  if (a > Math.PI) a -= Math.PI * 2;
+  if (a < -Math.PI) a += Math.PI * 2;
+  return a;
+}
+
+function lerpAngleRad(from, to, t) {
+  const a = normalizeAngleRad(from);
+  const b = normalizeAngleRad(to);
+  const delta = normalizeAngleRad(b - a);
+  return normalizeAngleRad(a + delta * t);
+}
+
+function updatePlayerRotations() {
+  players.forEach((p) => {
+    const hasAuthYaw = Number.isFinite(p.targetYaw);
+    const desired = hasAuthYaw ? p.targetYaw : pickYawFacingCenterOrVelocity(p.mesh, p.side, p.velocity);
+    const current = p.mesh.rotation.y || 0;
+    // If server yaw exists, apply it directly to playerRoot. Fallback facing remains smoothed.
+    p.mesh.rotation.y = lerpAngleRad(current, desired, hasAuthYaw ? 1 : 0.25);
+  });
+}
+
+function enforceMinAngle2(vec) {
+  const speed = vec.length();
+  if (speed < 1e-5) return;
+  tempVec2.copy(vec).normalize();
+  if (Math.abs(tempVec2.x) < MIN_REFLECTION_ANGLE) {
+    tempVec2.x = Math.sign(tempVec2.x || 1) * MIN_REFLECTION_ANGLE;
+  }
+  if (Math.abs(tempVec2.y) < MIN_REFLECTION_ANGLE) {
+    tempVec2.y = Math.sign(tempVec2.y || 1) * MIN_REFLECTION_ANGLE;
+  }
+  tempVec2.normalize().multiplyScalar(speed);
+  vec.copy(tempVec2);
+}
+
 function collideBallWithWalls() {
-  const halfW = ARENA.width / 2;
-  const halfH = ARENA.height / 2;
+  // Keep offline behavior consistent with server-side bounds.
+  const halfW = (FIELD.width > 0 ? FIELD.width : ARENA.width) / 2;
+  const halfH = (FIELD.height > 0 ? FIELD.height : ARENA.height) / 2;
   const r = ballState.radius;
   let hit = false;
 
@@ -1956,34 +3358,57 @@ function collideBallWithWalls() {
 
   if (hit) {
     ballState.velocity.multiplyScalar(PHYSICS.damping);
+    enforceMinAngle2(ballState.velocity);
     playSfx('hit_wall', 0.4);
   }
 }
 
 function collideBallWithPlayer(player) {
-  const { mesh } = player;
-  const halfX = 1.1 + ballState.radius * 0.5;
-  const halfZ = ARENA.playerDepth * 0.6 + ballState.radius;
-  const dx = ballMesh.position.x - mesh.position.x;
-  const dz = ballMesh.position.z - mesh.position.z;
+  const { mesh: playerRoot } = player;
+  const halfX = (PLAYER.collider?.x ?? 2.5) * 0.5 + ballState.radius * 0.5;
+  const halfZ = (PLAYER.collider?.z ?? ARENA.playerDepth) * 0.5 + ballState.radius * 0.5;
+  const dx = ballMesh.position.x - playerRoot.position.x;
+  const dz = ballMesh.position.z - playerRoot.position.z;
 
   if (Math.abs(dx) > halfX || Math.abs(dz) > halfZ) return;
 
   const overlapX = halfX - Math.abs(dx);
   const overlapZ = halfZ - Math.abs(dz);
 
+  // push ball outside collider AABB to avoid sticking
   if (overlapX < overlapZ) {
-    const normalX = Math.sign(dx);
+    const normalX = Math.sign(dx) || 1;
     ballMesh.position.x += normalX * overlapX;
-    ballState.velocity.x = Math.abs(ballState.velocity.x) * normalX;
   } else {
-    const normalZ = Math.sign(dz);
+    const normalZ = Math.sign(dz) || 1;
     ballMesh.position.z += normalZ * overlapZ;
-    ballState.velocity.y = Math.abs(ballState.velocity.y) * normalZ;
   }
 
-  const punch = player.isLocal ? 1.2 : 1.05;
-  ballState.velocity.multiplyScalar(punch);
+  // arcade reflection: normal from player root to ball (XZ plane only)
+  tempNormalXZ.set(dx, 0, dz);
+  if (tempNormalXZ.lengthSq() < 1e-6) {
+    // fallback to incoming velocity direction if positions match
+    tempNormalXZ.set(-ballState.velocity.x, 0, -ballState.velocity.y);
+  }
+  if (tempNormalXZ.lengthSq() < 1e-6) {
+    tempNormalXZ.set(0, 0, 1);
+  }
+  tempNormalXZ.y = 0;
+  tempNormalXZ.normalize();
+
+  tempVel3.set(ballState.velocity.x, 0, ballState.velocity.y);
+  tempVel3.reflect(tempNormalXZ);
+
+  const pVel = player.velocity || zeroVec3;
+  tempVel3.addScaledVector(pVel, 0.5); // player's motion influences power
+
+  ballState.velocity.set(tempVel3.x, tempVel3.z);
+  enforceMinAngle2(ballState.velocity);
+  const maxSpeed = PHYSICS.maxSpeed;
+  const speedSq = ballState.velocity.lengthSq();
+  if (speedSq > maxSpeed * maxSpeed) {
+    ballState.velocity.setLength(maxSpeed);
+  }
   ballState.velocity.clampLength(PHYSICS.minSpeed, PHYSICS.maxSpeed);
   playSfx('hit_player', 0.6);
 }
@@ -1991,7 +3416,8 @@ function collideBallWithPlayer(player) {
 function updateBall(dt) {
   ballMesh.position.x += ballState.velocity.x * dt;
   ballMesh.position.z += ballState.velocity.y * dt;
-  ballMesh.position.y = ballState.radius;
+  const vr = ballVisualRadius();
+  ballMesh.position.y = floorY() + vr;
 
   collideBallWithWalls();
   players.forEach(collideBallWithPlayer);
@@ -2000,22 +3426,47 @@ function updateBall(dt) {
   ballState.velocity.clampLength(PHYSICS.minSpeed, PHYSICS.maxSpeed);
   shadowMesh.position.x = ballMesh.position.x;
   shadowMesh.position.z = ballMesh.position.z;
+  shadowMesh.position.y = floorY() + 0.02;
+  shadowMesh.scale.set(vr * 2, vr * 2, 1);
 }
 
 let lastTime = performance.now();
 let isPageHidden = document.hidden;
 document.addEventListener('visibilitychange', () => {
   isPageHidden = document.hidden;
+  // If the WebView loses focus/cancels a pointer, ensure controls don't "stick".
+  if (document.hidden) {
+    input.touchActive = false;
+    input.dragActive = false;
+    setMoveVector(0, 0, 'hidden');
+  }
+});
+window.addEventListener('blur', () => {
+  input.touchActive = false;
+  input.dragActive = false;
+  setMoveVector(0, 0, 'blur');
 });
 
 function update(dt) {
-  if (net.enabled && (!net.connected || (net.matchState && net.matchState !== 'IN_PROGRESS' && net.matchState !== 'READY'))) {
+  // Portrait mode is allowed (we only show a hint banner). Do not block input here.
+
+  if (net.enabled && (!net.connected || (net.matchState && net.matchState !== 'IN_PROGRESS'))) {
     setMoveVector(0, 0, 'net-guard');
   }
 
   updateCameraIntro(dt);
 
   if (net.connected) {
+    // If the socket stays open but snapshots stop arriving, force a reconnect. This is a common failure
+    // mode on mobile networks / WebViews that aggressively suspend background tabs.
+    if (net.lastSnapshotAt) {
+      const now = performance.now();
+      if (now - net.lastSnapshotAt > SNAPSHOT_STALL_MS && !net.stallTriggeredAt) {
+        net.stallTriggeredAt = now;
+        net.errorMessage = 'Network stall. Reconnecting…';
+        try { net.ws?.close(); } catch {}
+      }
+    }
     if (!input.touchActive && !input.dragActive) {
       recomputeKeyboardVector();
     }
@@ -2023,6 +3474,8 @@ function update(dt) {
     applyNetState();
   }
   enforcePlayerBounds();
+  updatePlayerVelocities(dt);
+  updatePlayerRotations();
   updateVisualFx(dt);
 
   if (!net.connected) {
@@ -2037,40 +3490,68 @@ function animate() {
   lastTime = now;
 
   if (!isPageHidden) {
-    update(dt);
-    updateHud();
-    updatePlayersList();
-    renderer.render(scene, camera);
-    if (!ui.sceneReady) ui.sceneReady = true;
+    try {
+      update(dt);
+      updateHud();
+      updatePlayersList();
+      if (renderer) renderer.render(scene, camera);
+    } catch (err) {
+      showFatalError(err);
+    }
   }
   requestAnimationFrame(animate);
 }
 
-animate();
-bindTouchControls();
-bindDragControls();
-bindNetControls();
-bindGameUiControls();
-applyNetPanelVisibility();
-applyDebugUi();
-getCountdownEl();
-updateHud();
+let gameBooted = false;
+async function bootGame() {
+  if (gameBooted) return;
+  gameBooted = true;
 
-window.addEventListener('resize', () => {
+  await waitForTelegramBeforeNetworking();
+  initRenderer();
+
+  // Ensure correct viewport after Telegram expands the WebView (fixes mobile black screen).
+  refreshViewport();
+
+  // Render at least one frame immediately; Telegram mobile can otherwise show a black frame.
+  try {
+    renderer?.setClearColor(0x000000, 1);
+    renderer?.render(scene, camera);
+    requestAnimationFrame(() => {
+      try { renderer?.render(scene, camera); } catch {}
+    });
+  } catch {}
+
+  // Start loop + input only after the renderer exists.
+  animate();
+  bindTouchControls();
+  bindDragControls();
+  bindNetControls();
+  bindGameUiControls();
+  applyNetPanelVisibility();
+  applyDebugUi();
+  getCountdownEl();
+  updateHud();
+  syncLandscapeGate();
+
+  window.addEventListener('resize', refreshViewport);
+  window.addEventListener('orientationchange', () => {
+    // Give WebView a moment to recalc safe-area/viewport.
+    setTimeout(refreshViewport, 100);
+  });
+}
+
+bootGame().catch((err) => console.warn('[boot] failed', err));
+
+function refreshViewport() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
-
-window.addEventListener('orientationchange', () => {
-  // give WebView a moment to recalc safe-area
-  setTimeout(() => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    updateHud();
-  }, 100);
-});
+  applyGameCameraPreset(false);
+  camera.updateProjectionMatrix();
+  if (renderer) renderer.setSize(window.innerWidth, window.innerHeight);
+  syncLandscapeGate();
+  updateHud();
+}
 
 window.addEventListener('message', (evt) => {
   if (evt?.data?.type) {
@@ -2078,8 +3559,19 @@ window.addEventListener('message', (evt) => {
   }
 });
 
-document.addEventListener('DOMContentLoaded', () => {
+function onDomReady() {
   initOverlayDom();
+  syncLandscapeGate();
+  // Do not auto-call fullscreen/orientation lock on load: many WebViews require a user gesture and can
+  // fail noisily. The button below is the safe path.
+
+  if (landscapeDom.btn) {
+    landscapeDom.btn.addEventListener('click', async () => {
+      await requestLandscapeMode();
+      setTimeout(refreshViewport, 120);
+    });
+  }
+
   const hintSeen = (() => {
     try { return localStorage.getItem('tf_hint_shown') === '1'; } catch { return true; }
   })();
@@ -2116,4 +3608,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     window.addEventListener('beforeunload', logMetrics);
   }
-});
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', onDomReady, { once: true });
+} else {
+  onDomReady();
+}
